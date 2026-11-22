@@ -108,8 +108,8 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **Release builds** cross-compile for Linux, Windows and macOS (amd64 and arm64) with `make release`.
 - **Decisions made along the way:**
   - Linux first for milestone 2, since that's the dev machine.
-  - The main registry URL is a placeholder (`jonsjava.github.io/anyserve-registry`) until the registry is published; until then the signed snapshot in the binary is the main registry.
-  - The dev signing key is at `~/.config/anyserve-dev/registry-signing.key`. Move it to a CI secret when the registry repo exists.
+  - The main registry is published at `jonsjava.github.io/anyserve-registry` (GitHub Pages for the `anyserve-registry` repo). The signed snapshot in the binary is the fallback when it can't be reached.
+  - The signing key is at `~/.config/anyserve-dev/registry-signing.key` and stays off GitHub; `make publish-registry` signs and pushes the index.
   - Vanilla only for Rust and Terraria for now.
   - Targets not built yet are listed by `anyserve targets` and refuse to install.
 - **Not verified yet:** the wizard in a real terminal, Rust (10 GB download), and anything on Windows or macOS.
@@ -182,7 +182,7 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
-3. Publish the registry with CI that runs `regbuild` and signs the index, and release binaries
+3. Release binaries, and CI on pull requests that runs `make check` and `make test`
 4. A Pelican egg importer that drafts definitions for review
 5. Several processes per server (DST's caves), more `set` formats (xml, properties, yaml), and a second install source for bring-your-own game data
 6. Scheduled backups and update checks
@@ -191,7 +191,8 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 ## Decided since the start
 
 - Linux comes first for milestone 2.
-- The code lives at `github.com/jonsjava/anyserve` (MIT licensed). The registry can move to its own repo or organization later.
+- The code lives at `github.com/jonsjava/anyserve` (MIT licensed). The main registry is `github.com/jonsjava/anyserve-registry`, served by GitHub Pages.
+- The registry is signed on the maintainer's machine, not in CI, so the signing key never sits in a GitHub secret. Definitions are still reviewed and merged in the main repo first.
 - Rust and Terraria are vanilla for now.
 
 ## Still open

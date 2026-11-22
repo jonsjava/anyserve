@@ -1,9 +1,10 @@
-// Command regbuild builds and signs a registry index. CI runs it on the
-// registry repo; `make registry` runs it to refresh the snapshot embedded in
-// the anyserve binary.
+// Command regbuild builds, signs and verifies registry indexes.
+// `make registry` runs it to refresh the snapshot embedded in the anyserve
+// binary, and `make publish-registry` to publish the main registry.
 //
 //	regbuild -keygen -key path/to/new.key
 //	regbuild -src registry/services -out internal/registry/snapshot -key path/to.key
+//	regbuild -verify path/to/index.json [-pub anyserve-ed25519:...]
 package main
 
 import (
@@ -24,8 +25,17 @@ func main() {
 		out     = flag.String("out", "dist/registry", "output directory for index.json and index.json.sig")
 		name    = flag.String("name", registry.MainName, "registry name")
 		check   = flag.Bool("check", false, "only validate the definitions; don't write anything")
+		verify  = flag.String("verify", "", "check that this index.json matches its .sig file and the -pub key, then exit")
+		pub     = flag.String("pub", registry.MainPublicKey, "public key for -verify")
 	)
 	flag.Parse()
+	if *verify != "" {
+		if err := verifyIndex(*verify, *pub, *name); err != nil {
+			fmt.Fprintln(os.Stderr, "regbuild:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*keygen, *keyPath, *src, *out, *name, *check); err != nil {
 		fmt.Fprintln(os.Stderr, "regbuild:", err)
 		os.Exit(1)
@@ -91,5 +101,22 @@ func run(keygen bool, keyPath, src, out, name string, check bool) error {
 		return err
 	}
 	fmt.Printf("wrote %d services to %s (signed by %s)\n", len(ix.Services), out, registry.PublicKeyString(sk))
+	return nil
+}
+
+func verifyIndex(path, pub, name string) error {
+	index, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	sig, err := os.ReadFile(path + ".sig")
+	if err != nil {
+		return err
+	}
+	ix, err := registry.VerifyAndParse(registry.Source{Name: name, PublicKey: pub}, index, sig)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: signature good, %d services, generated %s\n", path, len(ix.Services), ix.Generated)
 	return nil
 }

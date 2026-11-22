@@ -107,9 +107,10 @@ Run `anyserve <command> --help` for details and examples.
   [docs/definitions.md](docs/definitions.md).
 - **The registry index** is built from those files and signed with Ed25519.
   Anyserve only uses an index whose signature matches a pinned key. Each
-  binary also carries a signed snapshot, so it works offline. Until the
-  public registry is published, the built-in snapshot is the main registry,
-  and `anyserve refresh` says so.
+  binary also carries a signed snapshot, so it works offline. The main
+  registry is published from
+  [anyserve-registry](https://github.com/jonsjava/anyserve-registry) and
+  `anyserve refresh` downloads its latest index.
 - **Targets** decide where an instance runs:
   - `systemd` (Linux) runs `anyserve run <name>` as a systemd *user*
     service. That command supervises the server: it gives the server a
@@ -157,10 +158,12 @@ make test        # vet and quick tests
 make test-full   # all tests with the race detector
 make check       # validate every definition
 make registry    # rebuild the signed snapshot (needs the signing key)
+make publish-registry  # sign and publish the main registry (maintainer only)
 make release     # cross-compile for Linux, Windows and macOS into dist/
 ```
 
-The registry signing key isn't in the repo. `make registry` reads it from
+The registry signing key isn't in the repo, and it isn't in CI either: the
+index is signed on the maintainer's machine. `make registry` reads it from
 `~/.config/anyserve-dev/registry-signing.key` (override with `KEY=...`); its
 public key is pinned in `internal/registry/defaults.go`. Contributors don't
 need it: `make check` validates definitions without signing.

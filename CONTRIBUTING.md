@@ -78,9 +78,11 @@ definition are often worth sending upstream.
 - Keep the security rules intact: no shell from definitions, paths stay
   inside the instance, downloads are HTTPS and pinned, containers stay
   locked down. Changes to these need a clear reason.
-- The registry snapshot in `internal/registry/snapshot` is signed by the
-  maintainer. Don't edit it by hand; the maintainer regenerates it with
-  `make registry` after merging definition changes.
+- The registry snapshot in `internal/registry/snapshot` and the published
+  [anyserve-registry](https://github.com/jonsjava/anyserve-registry) are
+  signed by the maintainer. Don't edit them by hand; after merging
+  definition changes the maintainer runs `make publish-registry`, which
+  re-signs the snapshot and publishes it.
 
 ## Reporting bugs
 

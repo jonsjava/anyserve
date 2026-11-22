@@ -7,8 +7,8 @@ import (
 // MainName is the name of the built-in registry.
 const MainName = "main"
 
-// MainURL is where the main registry index will be published.
-// TODO: publish the registry (GitHub Pages) and confirm this URL.
+// MainURL is where the main registry index is published: GitHub Pages for
+// github.com/jonsjava/anyserve-registry, updated with `make publish-registry`.
 const MainURL = "https://jonsjava.github.io/anyserve-registry/index.json"
 
 // MainPublicKey is the pinned key the main registry is signed with.
@@ -16,7 +16,7 @@ const MainURL = "https://jonsjava.github.io/anyserve-registry/index.json"
 const MainPublicKey = "anyserve-ed25519:6dJrvi7OZIf0qcvUcX0ZoPv6b+RyRSFWjTtOLRrMYOE="
 
 // The binary carries a signed snapshot of the main registry, so a fresh
-// install works offline and before the registry is published. Regenerate it
+// install works offline or when the registry can't be reached. Regenerate it
 // with `make registry`.
 //
 //go:embed snapshot/index.json

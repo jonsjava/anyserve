@@ -2,10 +2,11 @@ GO      ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/jonsjava/anyserve/internal/cli.Version=$(VERSION)
 KEY     ?= $(HOME)/.config/anyserve-dev/registry-signing.key
+REGISTRY_REPO ?= ../anyserve-registry
 
 PLATFORMS := linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: build test test-full check registry release clean
+.PHONY: build test test-full check registry publish-registry release clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/anyserve ./cmd/anyserve
@@ -26,6 +27,16 @@ check:
 # Rebuild the signed registry snapshot embedded in the binary.
 registry:
 	$(GO) run ./tools/regbuild -src registry/services -out internal/registry/snapshot -key $(KEY)
+
+# Sign a fresh snapshot and publish it to the main registry (GitHub Pages).
+# REGISTRY_REPO is a clone of github.com/jonsjava/anyserve-registry.
+publish-registry: registry
+	@test -d $(REGISTRY_REPO)/.git || { echo "clone github.com/jonsjava/anyserve-registry to $(REGISTRY_REPO) first (or set REGISTRY_REPO)"; exit 1; }
+	cp internal/registry/snapshot/index.json internal/registry/snapshot/index.json.sig $(REGISTRY_REPO)/
+	$(GO) run ./tools/regbuild -verify $(REGISTRY_REPO)/index.json
+	cd $(REGISTRY_REPO) && git add index.json index.json.sig && \
+		git commit -q -m "Publish registry ($$(git -C $(CURDIR) rev-parse --short HEAD))" && git push -q
+	@echo "Published. Commit internal/registry/snapshot here too, so the built-in snapshot matches."
 
 # Cross-compile release binaries into dist/.
 release:

@@ -172,8 +172,7 @@ func (a *App) Refresh(ctx context.Context) error {
 		index, sig, err := registry.Fetch(ctx, src)
 		if err != nil {
 			if src.Name == registry.MainName {
-				// Until the registry is published, the built-in copy is
-				// the main registry.
+				// Offline or unreachable: the built-in copy still works.
 				a.Log("Main registry: %v; using the copy built into anyserve", err)
 				continue
 			}
