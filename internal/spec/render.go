@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -27,6 +28,15 @@ type Context struct {
 
 var funcs = template.FuncMap{
 	"lower": strings.ToLower,
+	// xml escapes text for XML attribute values and elements.
+	"xml": func(v any) string {
+		var b strings.Builder
+		_ = xml.EscapeText(&b, []byte(fmt.Sprint(v)))
+		return b.String()
+	},
+	// hasPrefix reports whether text starts with a prefix, for choices
+	// like "is this an https:// address?".
+	"hasPrefix": func(s, prefix string) bool { return strings.HasPrefix(s, prefix) },
 	// json renders a value as a JSON literal (a quoted, escaped string for
 	// text), for JSON, HJSON and YAML config files.
 	"json": func(v any) (string, error) {
@@ -71,6 +81,15 @@ func (d *Definition) RenderRun(goos string, ctx Context) (Run, error) {
 		return Run{}, fmt.Errorf("%s has no native server for %s", d.Name, goos)
 	}
 	out := Run{Command: r.Command, Via: r.Via, Workdir: r.Workdir, Env: map[string]string{}}
+	for i, a := range r.ViaArgs {
+		s, err := Render(fmt.Sprintf("run.%s.via_args[%d]", goos, i), a, ctx)
+		if err != nil {
+			return Run{}, err
+		}
+		if s != "" {
+			out.ViaArgs = append(out.ViaArgs, s)
+		}
+	}
 	for i, a := range r.Args {
 		s, err := Render(fmt.Sprintf("run.%s.args[%d]", goos, i), a, ctx)
 		if err != nil {
@@ -142,16 +161,30 @@ func (s Setting) Convert(v string) (any, error) {
 		}
 		return n, nil
 	case "bool":
-		if v == "" {
-			return false, nil
-		}
+		b := false
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "true", "yes", "y", "1", "on":
-			return true, nil
-		case "false", "no", "n", "0", "off":
-			return false, nil
+			b = true
+		case "", "false", "no", "n", "0", "off":
+		default:
+			return nil, fmt.Errorf("%s must be true or false (got %q)", s.Key, v)
 		}
-		return nil, fmt.Errorf("%s must be true or false (got %q)", s.Key, v)
+		if s.MustAccept && !b {
+			return nil, fmt.Errorf("%s: %s Installing needs your agreement: add --set %s=true", s.Key, s.Prompt, s.Key)
+		}
+		return b, nil
+	case "folder":
+		if v == "" {
+			if s.Optional {
+				return "", nil
+			}
+			return nil, fmt.Errorf("%s is required: give a folder on this machine", s.Key)
+		}
+		p, err := HostFolder(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", s.Key, err)
+		}
+		return p, nil
 	case "choice":
 		for _, c := range s.Choices {
 			if c.Value == v {

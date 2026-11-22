@@ -99,6 +99,13 @@ type Archive struct {
 	// Subdir picks the folder inside the archive to install, per OS.
 	// "*" applies to every OS without its own entry.
 	Subdir map[string]string `yaml:"subdir,omitempty" json:"subdir,omitempty"`
+	// Format names the archive type when the URL doesn't end in one:
+	// zip, tar.gz or tar.xz.
+	Format string `yaml:"format,omitempty" json:"format,omitempty"`
+	// Keep lists files (relative to the server folder) that aren't
+	// replaced if they already exist, such as config files the archive
+	// ships with.
+	Keep []string `yaml:"keep,omitempty" json:"keep,omitempty"`
 }
 
 // Step is one built-in install step. Steps run in order after the files are
@@ -109,6 +116,11 @@ type Step struct {
 	From string `yaml:"from,omitempty" json:"from,omitempty"`
 	To   string `yaml:"to,omitempty" json:"to,omitempty"`
 	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// Command, Args and Creates are for exec steps: run Command (a file in
+	// the server folder) with Args once, unless Creates already exists.
+	Command string   `yaml:"command,omitempty" json:"command,omitempty"`
+	Args    []string `yaml:"args,omitempty" json:"args,omitempty"`
+	Creates string   `yaml:"creates,omitempty" json:"creates,omitempty"`
 	// OS limits the step to some operating systems. Empty means all.
 	OS []string `yaml:"os,omitempty" json:"os,omitempty"`
 }
@@ -123,6 +135,7 @@ var StepTypes = map[string]string{
 	"chmod_exec":           "mark `path` as executable (no-op on Windows)",
 	"steamcmd_file":        "copy file `from` (relative to Anyserve's SteamCMD folder, e.g. linux32/steamclient.so) to `to`",
 	"steam_sdk":            "copy SteamCMD's steamclient libraries into .steam/sdk32 and .steam/sdk64, where many Steam servers look for them",
+	"exec":                 "run the server's own `command` with `args` once, after config files are written, unless `creates` exists (e.g. to create a first world)",
 }
 
 // Launcher is a host program a server can be started through. The list is
@@ -147,7 +160,7 @@ type Setting struct {
 	Key         string   `yaml:"key" json:"key"`
 	Prompt      string   `yaml:"prompt" json:"prompt"`
 	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	Type        string   `yaml:"type" json:"type"` // string, int, bool, choice
+	Type        string   `yaml:"type" json:"type"` // string, int, bool, choice, folder
 	Default     any      `yaml:"default,omitempty" json:"default,omitempty"`
 	Choices     []Choice `yaml:"choices,omitempty" json:"choices,omitempty"`
 	// Secret hides the value in prompts and output.
@@ -156,8 +169,11 @@ type Setting struct {
 	Generate bool `yaml:"generate,omitempty" json:"generate,omitempty"`
 	// Optional allows an empty value.
 	Optional bool `yaml:"optional,omitempty" json:"optional,omitempty"`
-	Min      *int `yaml:"min,omitempty" json:"min,omitempty"`
-	Max      *int `yaml:"max,omitempty" json:"max,omitempty"`
+	// MustAccept makes a bool setting a required agreement, such as a
+	// licence: installing fails until the user sets it to true.
+	MustAccept bool `yaml:"must_accept,omitempty" json:"must_accept,omitempty"`
+	Min        *int `yaml:"min,omitempty" json:"min,omitempty"`
+	Max        *int `yaml:"max,omitempty" json:"max,omitempty"`
 }
 
 // Choice is one option of a choice setting.
@@ -209,7 +225,10 @@ type Run struct {
 	Command string `yaml:"command" json:"command"`
 	// Via lists host launchers to start Command through, outermost first,
 	// from the built-in Launchers list (e.g. [xvfb], [dotnet]).
-	Via     []string          `yaml:"via,omitempty" json:"via,omitempty"`
+	Via []string `yaml:"via,omitempty" json:"via,omitempty"`
+	// ViaArgs go to the launcher, before Command: JVM options and -jar
+	// for java, for example. Templates allowed.
+	ViaArgs []string          `yaml:"via_args,omitempty" json:"via_args,omitempty"`
 	Args    []string          `yaml:"args,omitempty" json:"args,omitempty"`
 	Workdir string            `yaml:"workdir,omitempty" json:"workdir,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
@@ -221,6 +240,9 @@ type Stop struct {
 	Command string `yaml:"command,omitempty" json:"command,omitempty"`
 	// TimeoutSeconds is how long to wait before killing the process.
 	TimeoutSeconds int `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+	// RCON sends Command over the console's RCON instead of stdin, for
+	// servers that don't read their standard input.
+	RCON bool `yaml:"rcon,omitempty" json:"rcon,omitempty"`
 }
 
 // Console describes the server's stdin console.
@@ -408,8 +430,19 @@ func (d *Definition) Validate() error {
 		if a.SHA256 != "" && !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.SHA256) {
 			add("install.archive.sha256 must be 64 lowercase hex characters")
 		}
-		if !ArchiveURL(a.URL) {
-			add("install.archive.url must end in .zip, .tar.gz, .tgz, .tar.xz or .txz")
+		switch a.Format {
+		case "":
+			if !ArchiveURL(a.URL) {
+				add("install.archive.url must end in .zip, .tar.gz, .tgz, .tar.xz or .txz, or set install.archive.format")
+			}
+		case "zip", "tar.gz", "tar.xz":
+		default:
+			add("install.archive.format must be zip, tar.gz or tar.xz")
+		}
+		for _, k := range a.Keep {
+			if err := checkRelPath(k); err != nil {
+				add("install.archive.keep: %v", err)
+			}
 		}
 		for os, sub := range a.Subdir {
 			if os != "*" && !isKnownOS(os) {
@@ -419,8 +452,10 @@ func (d *Definition) Validate() error {
 				add("install.archive.subdir[%s]: %v", os, err)
 			}
 		}
+	case len(d.Install.Downloads) > 0:
+		// A server that is a single file, such as a Java .jar.
 	default:
-		add("install: set one of steamcmd or archive")
+		add("install: set one of steamcmd, archive or downloads")
 	}
 
 	for i, dl := range d.Install.Downloads {
@@ -436,6 +471,10 @@ func (d *Definition) Validate() error {
 		}
 	}
 
+	if d.Stop.RCON && (d.Console.RCON == nil || d.Stop.Command == "") {
+		add("stop.rcon needs stop.command and console.rcon")
+	}
+
 	// Steps.
 	for i, s := range d.Steps {
 		where := fmt.Sprintf("steps[%d] (%s)", i, s.Type)
@@ -449,6 +488,19 @@ func (d *Definition) Validate() error {
 			}
 		}
 		switch s.Type {
+		case "exec":
+			for name, v := range map[string]string{"command": s.Command, "creates": s.Creates} {
+				if v == "" {
+					add("%s: %s is required", where, name)
+				} else if err := checkRelPath(v); err != nil {
+					add("%s: %s: %v", where, name, err)
+				}
+			}
+			for j, a := range s.Args {
+				if _, err := template.New("a").Funcs(funcs).Parse(a); err != nil {
+					add("%s.args[%d]: template: %v", where, j, err)
+				}
+			}
 		case "steam_sdk", "steamcmd_file":
 			if s.Type == "steamcmd_file" {
 				for name, v := range map[string]string{"from": s.From, "to": s.To} {
@@ -507,6 +559,15 @@ func (d *Definition) Validate() error {
 					add("%s: default must be true or false", where)
 				}
 			}
+		case "folder":
+			if s.Default != nil {
+				if _, ok := s.Default.(string); !ok {
+					add("%s: default must be a path", where)
+				}
+			}
+			if s.Secret {
+				add("%s: folder settings can't be secret", where)
+			}
 		case "choice":
 			if len(s.Choices) == 0 {
 				add("%s: choice settings need choices", where)
@@ -523,7 +584,10 @@ func (d *Definition) Validate() error {
 				}
 			}
 		default:
-			add("%s: type must be string, int, bool or choice", where)
+			add("%s: type must be string, int, bool, choice or folder", where)
+		}
+		if s.MustAccept && s.Type != "bool" {
+			add("%s: must_accept only works with bool settings", where)
 		}
 		if s.Generate && s.Type != "string" {
 			add("%s: generate only works with string settings", where)
@@ -609,6 +673,14 @@ func (d *Definition) Validate() error {
 		for _, v := range r.Via {
 			if _, ok := Launchers[v]; !ok {
 				add("%s.via: unknown launcher %q (known: %s)", where, v, strings.Join(sortedKeys(Launchers), ", "))
+			}
+		}
+		if len(r.ViaArgs) > 0 && len(r.Via) == 0 {
+			add("%s.via_args: only used with via", where)
+		}
+		for j, a := range r.ViaArgs {
+			if _, err := template.New("v").Funcs(funcs).Parse(a); err != nil {
+				add("%s.via_args[%d]: template: %v", where, j, err)
 			}
 		}
 		if r.Workdir != "" {

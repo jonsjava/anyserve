@@ -274,3 +274,23 @@ func tail(ctx context.Context, p string, off int64, out io.Writer) {
 		}
 	}
 }
+
+// sendLine delivers one console line to a running server: over RCON when
+// the definition declares it (many servers ignore their standard input),
+// otherwise to its console socket. Used for chat broadcasts and saves.
+func (a *App) sendLine(in *instance.Instance, d *spec.Definition, line string) error {
+	info, err := consoleInfo(in, d)
+	if err != nil {
+		return err
+	}
+	if info.Kind != ConsoleRCON {
+		return supervise.Send(in.ConsoleSocket(), line)
+	}
+	c, err := a.dialRCON(info)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_, err = c.Exec(line)
+	return err
+}

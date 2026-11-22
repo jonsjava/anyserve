@@ -139,6 +139,11 @@ func (s *systemd) Status(in *instance.Instance) Status {
 
 func (s *systemd) Logs(in *instance.Instance, lines int, follow bool, out io.Writer) error {
 	args := []string{"--user", "-u", unitName(in), "-n", strconv.Itoa(lines), "--no-pager", "-o", "cat"}
+	if !in.Installed.IsZero() {
+		// An earlier instance with the same name used the same unit; its
+		// journal isn't this instance's history.
+		args = append(args, "--since", in.Installed.Local().Format("2006-01-02 15:04:05"))
+	}
 	if follow {
 		args = append(args, "-f")
 	}

@@ -34,6 +34,9 @@ type Options struct {
 	Env     []string
 	// StopCommand is written to stdin to stop the server cleanly.
 	StopCommand string
+	// StopFunc, if set, sends StopCommand another way (such as RCON)
+	// instead of writing it to stdin.
+	StopFunc    func() error
 	StopTimeout time.Duration
 	// Socket is the console socket path. Empty disables it.
 	Socket string
@@ -125,7 +128,11 @@ func Run(ctx context.Context, o Options) error {
 
 	// Clean stop: type the stop command, then interrupt, then kill.
 	if o.StopCommand != "" {
-		if err := send(o.StopCommand); err != nil {
+		deliver := send
+		if o.StopFunc != nil {
+			deliver = func(string) error { return o.StopFunc() }
+		}
+		if err := deliver(o.StopCommand); err != nil {
 			o.Log("Couldn't send %q: %v", o.StopCommand, err)
 		} else {
 			o.Log("Sent %q; waiting up to %s", o.StopCommand, o.StopTimeout)

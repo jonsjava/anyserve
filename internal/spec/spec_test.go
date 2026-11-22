@@ -27,6 +27,13 @@ func TestRegistryDefinitionsAreValid(t *testing.T) {
 			if s.Default == nil && !s.Optional && !s.Generate && s.Type == "string" {
 				raw[s.Key] = "stand-in"
 			}
+			if s.MustAccept {
+				raw[s.Key] = "true"
+			}
+			if s.Type == "folder" {
+				// Defaults like ~/Music may not exist on this machine.
+				raw[s.Key] = t.TempDir()
+			}
 		}
 		settings, err := d.ResolveSettings(raw)
 		if err != nil {

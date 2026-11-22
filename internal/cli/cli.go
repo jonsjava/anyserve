@@ -200,6 +200,9 @@ func infoCmd() *cobra.Command {
 					}
 					extra = " [" + strings.Join(vals, ", ") + "]"
 				}
+				if s.Type == "folder" {
+					extra = " [a folder on this machine: " + strings.Join(folderMounts(d, s.Key), "; ") + "]"
+				}
 				fmt.Fprintf(w, "  %s\t%s\t%s%s\n", s.Key, def, s.Prompt, extra)
 			}
 			w.Flush()
@@ -310,6 +313,7 @@ func installCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&req.Start, "start", false, "start the server after installing")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask for confirmation")
 	cmd.Flags().BoolVar(&req.SteamOutput, "steam-output", false, "show SteamCMD's full output")
+	cmd.Flags().StringArrayVar(&req.Expose, "expose", nil, "open a private port (such as a web UI) to the network instead of this machine only (stacks; repeatable)")
 	return cmd
 }
 
@@ -524,21 +528,23 @@ func updateCmd() *cobra.Command {
 
 func configCmd() *cobra.Command {
 	var (
-		sets, ports []string
-		showSecrets bool
+		sets, ports      []string
+		expose, unexpose []string
+		showSecrets      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "config <name>",
 		Short: "Show or change an instance's settings and ports",
 		Example: `  anyserve config friends
-  anyserve config friends --set max_players=24 --port game=7778`,
+  anyserve config friends --set max_players=24 --port game=7778
+  anyserve config vault --expose http   # reachable from other computers`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp(cmd)
 			if err != nil {
 				return err
 			}
-			if len(sets) > 0 || len(ports) > 0 {
+			if len(sets) > 0 || len(ports) > 0 || len(expose) > 0 || len(unexpose) > 0 {
 				s, err := parseSets(sets)
 				if err != nil {
 					return err
@@ -547,7 +553,7 @@ func configCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := a.Reconfigure(args[0], s, p); err != nil {
+				if err := a.Reconfigure(args[0], app.Changes{Settings: s, Ports: p, Expose: expose, Unexpose: unexpose}); err != nil {
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Updated %s's configuration.\n", args[0])
@@ -570,9 +576,14 @@ func configCmd() *cobra.Command {
 			ps, _ := d.ResolvePorts(in.Ports)
 			fmt.Fprintln(out, "Ports:")
 			fmt.Fprint(out, app.FormatPorts(d, ps))
+			if len(in.Expose) > 0 {
+				fmt.Fprintf(out, "Opened to the network with --expose: %s\n", strings.Join(in.Expose, ", "))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringArrayVar(&expose, "expose", nil, "open a private port to the network instead of this machine only (stacks; repeatable)")
+	cmd.Flags().StringArrayVar(&unexpose, "unexpose", nil, "make an exposed port private again (repeatable)")
 	cmd.Flags().StringArrayVar(&sets, "set", nil, "change a setting, key=value (repeatable)")
 	cmd.Flags().StringArrayVar(&ports, "port", nil, "change a port, name=number (repeatable)")
 	cmd.Flags().BoolVar(&showSecrets, "show-secrets", false, "show passwords")
@@ -1032,4 +1043,28 @@ func printWarnings(cmd *cobra.Command, warnings []string) {
 	for _, w := range warnings {
 		fmt.Fprintln(cmd.ErrOrStderr(), "Warning:", w)
 	}
+}
+
+// folderMounts describes where a folder setting is mounted, for info.
+func folderMounts(d *spec.Definition, key string) []string {
+	var out []string
+	if d.Stack == nil {
+		return []string{"not mounted"}
+	}
+	for _, sv := range d.Stack.Services {
+		for _, v := range sv.Volumes {
+			if v.Setting != key {
+				continue
+			}
+			mode := "read-write"
+			if v.ReadOnly {
+				mode = "read-only"
+			}
+			out = append(out, fmt.Sprintf("%s sees it at %s, %s", sv.Name, v.Target, mode))
+		}
+	}
+	if len(out) == 0 {
+		return []string{"not mounted"}
+	}
+	return out
 }

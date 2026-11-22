@@ -112,3 +112,53 @@ func TestTargetsRefuseTheWrongKind(t *testing.T) {
 		t.Error("native targets should refuse stacks")
 	}
 }
+
+func TestComposeFolderSetting(t *testing.T) {
+	d := stackDef()
+	d.Settings = append(d.Settings,
+		spec.Setting{Key: "media", Prompt: "m", Type: "folder"},
+		spec.Setting{Key: "extra", Prompt: "e", Type: "folder", Optional: true})
+	d.Stack.Services[1].Volumes = append(d.Stack.Services[1].Volumes,
+		spec.Volume{Setting: "media", Target: "/media", ReadOnly: true},
+		spec.Volume{Setting: "extra", Target: "/extra"})
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	dir, media := t.TempDir(), t.TempDir()
+	in := &instance.Instance{Name: "x", Dir: dir, ServerDir: dir, Settings: map[string]string{"media": media}}
+	b, err := Compose(in, d, 1001, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := string(b)
+	if !strings.Contains(c, "source: "+media) || !strings.Contains(c, "target: /media") {
+		t.Errorf("chosen folder not mounted:\n%s", c)
+	}
+	if strings.Contains(c, "/extra") {
+		t.Errorf("empty optional folder was mounted:\n%s", c)
+	}
+
+	in.Settings["media"] = "/etc"
+	if _, err := Compose(in, d, 1001, 1002); err == nil {
+		t.Error("a system folder was accepted")
+	}
+
+	bad := stackDef()
+	bad.Stack.Services[0].Volumes = []spec.Volume{{Setting: "pw", Target: "/x"}}
+	if err := bad.Validate(); err == nil {
+		t.Error("a volume from a non-folder setting passed validation")
+	}
+}
+
+func TestComposeExpose(t *testing.T) {
+	d := stackDef()
+	dir := t.TempDir()
+	in := &instance.Instance{Name: "x", Dir: dir, ServerDir: dir, Expose: []string{"admin"}}
+	b, err := Compose(in, d, 1001, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := string(b); strings.Contains(c, "127.0.0.1") {
+		t.Errorf("exposed port still bound to 127.0.0.1:\n%s", c)
+	}
+}

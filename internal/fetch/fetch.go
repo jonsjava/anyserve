@@ -130,14 +130,44 @@ func fileSHA256(p string) (string, error) {
 // the archive that would land outside dest are rejected. Existing files are
 // replaced, and files not in the archive are left alone, so saves survive.
 func Extract(archive, subdir, dest string) (int, error) {
+	return ExtractAs(archive, "", subdir, dest, nil)
+}
+
+// ExtractAs is Extract for an archive whose type is given as format (zip,
+// tar.gz or tar.xz) instead of read from its file name. An empty format
+// means use the file name. Files listed in keep (paths relative to dest)
+// aren't replaced if they already exist, so config files the archive ships
+// with don't overwrite the user's.
+func ExtractAs(archive, format, subdir, dest string, keep []string) (int, error) {
 	subdir = strings.Trim(path.Clean("/"+subdir), "/")
-	switch {
-	case strings.HasSuffix(archive, ".zip"):
-		return extractZip(archive, subdir, dest)
-	case strings.HasSuffix(archive, ".tar.gz"), strings.HasSuffix(archive, ".tgz"):
-		return extractTar(archive, subdir, dest, func(r io.Reader) (io.Reader, error) { return gzip.NewReader(r) })
-	case strings.HasSuffix(archive, ".tar.xz"), strings.HasSuffix(archive, ".txz"):
-		return extractTar(archive, subdir, dest, func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) })
+	kept := map[string]bool{}
+	for _, k := range keep {
+		kept[filepath.Join(dest, filepath.FromSlash(path.Clean(k)))] = true
+	}
+	skip := func(out string) bool {
+		if !kept[out] {
+			return false
+		}
+		_, err := os.Lstat(out)
+		return err == nil
+	}
+	if format == "" {
+		switch {
+		case strings.HasSuffix(archive, ".zip"):
+			format = "zip"
+		case strings.HasSuffix(archive, ".tar.gz"), strings.HasSuffix(archive, ".tgz"):
+			format = "tar.gz"
+		case strings.HasSuffix(archive, ".tar.xz"), strings.HasSuffix(archive, ".txz"):
+			format = "tar.xz"
+		}
+	}
+	switch format {
+	case "zip":
+		return extractZip(archive, subdir, dest, skip)
+	case "tar.gz":
+		return extractTar(archive, subdir, dest, skip, func(r io.Reader) (io.Reader, error) { return gzip.NewReader(r) })
+	case "tar.xz":
+		return extractTar(archive, subdir, dest, skip, func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) })
 	}
 	return 0, fmt.Errorf("%s: unsupported archive type", archive)
 }
@@ -163,7 +193,7 @@ func target(name, subdir, dest string) (string, error) {
 	return out, nil
 }
 
-func extractZip(archive, subdir, dest string) (int, error) {
+func extractZip(archive, subdir, dest string, skip func(string) bool) (int, error) {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
 		return 0, err
@@ -188,6 +218,10 @@ func extractZip(archive, subdir, dest string) (int, error) {
 			// Symlinks could point anywhere; skip them.
 			continue
 		}
+		if skip(out) {
+			n++
+			continue
+		}
 		rc, err := f.Open()
 		if err != nil {
 			return n, err
@@ -205,7 +239,7 @@ func extractZip(archive, subdir, dest string) (int, error) {
 	return n, nil
 }
 
-func extractTar(archive, subdir, dest string, decompress func(io.Reader) (io.Reader, error)) (int, error) {
+func extractTar(archive, subdir, dest string, skip func(string) bool, decompress func(io.Reader) (io.Reader, error)) (int, error) {
 	f, err := os.Open(archive)
 	if err != nil {
 		return 0, err
@@ -238,6 +272,10 @@ func extractTar(archive, subdir, dest string, decompress func(io.Reader) (io.Rea
 				return n, err
 			}
 		case tar.TypeReg:
+			if skip(out) {
+				n++
+				continue
+			}
 			if err := writeFile(out, tr, os.FileMode(h.Mode).Perm()); err != nil {
 				return n, err
 			}

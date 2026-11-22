@@ -68,7 +68,8 @@ templates. They can use:
 | `.OS` | The host OS (`linux`, `windows`, `darwin`). |
 
 Helpers: `yesno`, `truefalse` and `onezero` turn a bool into `yes`/`no`,
-`true`/`false` or `1`/`0`. `lower` and `upper` change case. `json` renders a
+`true`/`false` or `1`/`0`. `lower` and `upper` change case,
+and `hasPrefix` tests the start of a value (`{{if hasPrefix .Settings.url "https://"}}`). `json` renders a
 value as a JSON literal, which gives a quoted, escaped string for JSON, HJSON
 and YAML config files.
 
@@ -82,7 +83,9 @@ optional flag and its value can be written as:
 
 ## install
 
-Set exactly one source, `steamcmd` or `archive`, and optionally `downloads`.
+Set one source, `steamcmd` or `archive`, and optionally `downloads`. A
+server that is a single file, such as a Java `.jar`, can use `downloads`
+alone.
 
 ### steamcmd
 
@@ -110,9 +113,12 @@ install:
     subdir:                   # optional folder inside the archive, per OS
       linux: 1.2/Linux
       "*": 1.2/Common         # any OS without its own entry
+    format: tar.xz            # only if the URL doesn't end in the type
 ```
 
-Supported archives: `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` and `.txz`. Symlinks
+Supported archives: `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` and `.txz`. When a
+download URL has no extension (Factorio's, for example), set `format` to
+`zip`, `tar.gz` or `tar.xz`. Symlinks
 and paths that would leave the install folder are skipped or rejected. Files
 already in the server folder that aren't in the archive are left alone, so
 saves survive updates.
@@ -148,6 +154,15 @@ may be limited to some systems with `os: [linux]`.
 | `chmod_exec` | `path` | Marks a file executable (does nothing on Windows). |
 | `steam_sdk` | | Copies SteamCMD's `steamclient.so` into `.steam/sdk32` and `.steam/sdk64`, where many Steam servers look for it. SteamCMD installs only. |
 | `steamcmd_file` | `from`, `to` | Copies a file from Anyserve's SteamCMD folder (for example `linux32/steamclient.so`). SteamCMD installs only. |
+| `exec` | `command`, `args`, `creates` | Runs the server's own `command` (a file in the server folder) with `args` once, unless `creates` exists. Runs after config files are written. Use it for one-time setup the server does itself, like creating a first world. `args` are templates. |
+
+```yaml
+steps:
+  - type: exec
+    command: bin/x64/factorio
+    args: [--create, saves/world.zip]
+    creates: saves/world.zip
+```
 
 If a service needs something these can't do, add a new step type in
 `internal/steps` instead of reaching for a script.
@@ -159,7 +174,7 @@ settings:
   - key: max_players          # lowercase, digits and underscores
     prompt: Maximum players   # shown by the wizard
     description: Optional longer help.
-    type: int                 # string, int, bool or choice
+    type: int                 # string, int, bool, choice or folder
     default: 8
     min: 1                    # int only
     max: 255
@@ -179,6 +194,20 @@ settings:
     prompt: Message of the day
     type: string
     optional: true            # empty is allowed
+```
+
+A `folder` setting asks for a folder on the user's machine, such as a music
+library, and only stacks use it (see [Stacks](#stacks)). The value must be an
+existing folder, given as an absolute path or starting with `~/`. Anyserve
+refuses system folders (`/etc`, `/usr` and so on), the whole home folder, and
+folders that hold keys or other programs' settings (`~/.ssh`, `~/.config`,
+`~/.local`), so a definition can't talk someone into sharing them.
+
+```yaml
+  - key: music_folder
+    prompt: Your music folder (e.g. ~/Music)
+    type: folder
+    default: ~/Music
 ```
 
 A `string` setting with no default that isn't `optional` or `generate` is
@@ -201,7 +230,8 @@ ports:
 
 Users can change any port with `--port name=number`. Admin ports such as
 RCON should be `public: false`. For stacks, non-public ports bind to
-127.0.0.1 only.
+127.0.0.1 only, until the user opens one with `--expose` (for a web UI on a
+home network, say).
 
 ## files
 
@@ -257,6 +287,7 @@ run:
   linux:
     command: RustDedicated            # a file in the server folder
     via: [xvfb]                       # optional host launchers
+    via_args: []                      # optional arguments for the launcher
     workdir: bin64                    # optional; default the server folder
     args: [-batchmode, "+server.port", "{{.Ports.game}}"]
     env:
@@ -270,7 +301,17 @@ Every OS in `platforms` needs an entry. `command` is always a file inside the
 server folder; definitions can't run arbitrary host programs.
 
 `via` starts the command through a host program from a fixed list. The user
-is warned at install if it's missing.
+is warned at install if it's missing. `via_args` go to the launcher, before
+`command`: JVM options and `-jar` for Java servers, for example.
+
+```yaml
+run:
+  linux:
+    command: server.jar
+    via: [java]
+    via_args: ["-Xmx{{.Settings.memory_mb}}M", "-jar"]
+    args: [nogui]
+```
 
 | Launcher | Runs | Typical use |
 |---|---|---|
@@ -295,6 +336,15 @@ stop:
 Without `command`, Anyserve sends an interrupt (Ctrl-C), then kills the
 server after the timeout.
 
+For servers that don't read their console, set `rcon: true` to send the stop
+command over the definition's RCON instead:
+
+```yaml
+stop:
+  command: Shutdown 1
+  rcon: true
+```
+
 ## console
 
 ```yaml
@@ -308,7 +358,8 @@ console:
 ```
 
 `anyserve console <name>` uses RCON when it's declared, so commands get real
-replies, and `anyserve console <name> --info` shows the details for other
+replies. Chat broadcasts (`say`) and the save before a backup go over RCON
+too, because many servers ignore their standard input. and `anyserve console <name> --info` shows the details for other
 RCON tools. Without RCON, Anyserve types into the server's own console and
 shows what the server prints.
 
@@ -394,7 +445,7 @@ backup:
 | `image` | Must be pinned by digest: `name:tag@sha256:...`. |
 | `command` | Replaces the image's command. Templates allowed. |
 | `env` | Environment variables. Templates allowed. |
-| `volumes` | Mounts from the server folder. A path listed in `files` is mounted as a file; any other path is a folder, created before the stack starts. |
+| `volumes` | Mounts from the server folder (`path`), or a folder the user chose in a `folder` setting (`setting`). A path listed in `files` is mounted as a file; any other path is a folder, created before the stack starts. An optional folder setting left empty skips its mount. Backups only cover the server folder, not chosen folders. |
 | `ports` | Publishes a port from `ports` (by name) from the container's `target` port. Each port is published once. |
 | `depends_on` | Starts these services first, waiting until they're healthy if they have a health check. |
 | `health` | A command run inside the container; exit status 0 means healthy. |
@@ -408,7 +459,18 @@ definitions can't change them:
 - all Linux capabilities are dropped and `no-new-privileges` is set;
 - there's no way to ask for privileged mode, the host network, host paths or
   the Docker socket;
-- containers restart unless stopped, and logs are capped at 30 MB each.
+- containers restart unless stopped, and logs are capped at 30 MB each;
+- ports that aren't `public` listen on 127.0.0.1 only, unless the user opens
+  them with `anyserve install --expose <port>` or
+  `anyserve config <name> --expose <port>`.
+
+A folder from a `folder` setting is mounted like this:
+
+```yaml
+      volumes:
+        - { path: data, target: /data }
+        - { setting: music_folder, target: /music, read_only: true }
+```
 
 Images that insist on running as root won't work. Prefer images that run as
 any user, such as `nginxinc/nginx-unprivileged` instead of `nginx`.

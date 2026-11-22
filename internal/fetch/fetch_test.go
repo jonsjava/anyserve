@@ -113,3 +113,53 @@ func sha256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
+
+func TestExtractAsFormat(t *testing.T) {
+	// A zip saved under a name with no extension, as some download URLs give.
+	z := makeZip(t, map[string]string{"server/run.sh": "hi"})
+	plain := filepath.Join(t.TempDir(), "linux64")
+	b, err := os.ReadFile(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plain, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Extract(plain, "", t.TempDir()); err == nil {
+		t.Error("Extract guessed a type for a file with no extension")
+	}
+	dest := t.TempDir()
+	if n, err := ExtractAs(plain, "zip", "server", dest, nil); err != nil || n != 1 {
+		t.Fatalf("ExtractAs: %d files, %v", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "run.sh")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestExtractKeep(t *testing.T) {
+	z := makeZip(t, map[string]string{"server.properties": "shipped", "bin": "new"})
+	dest := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dest, "server.properties"), []byte("mine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "bin"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExtractAs(z, "", "", dest, []string{"server.properties"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "server.properties")); string(b) != "mine" {
+		t.Errorf("kept file was replaced: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "bin")); string(b) != "new" {
+		t.Errorf("other file wasn't updated: %q", b)
+	}
+	fresh := t.TempDir()
+	if _, err := ExtractAs(z, "", "", fresh, []string{"server.properties"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(fresh, "server.properties")); string(b) != "shipped" {
+		t.Errorf("a missing kept file should come from the archive: %q", b)
+	}
+}

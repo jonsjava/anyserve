@@ -15,7 +15,6 @@ import (
 
 	"github.com/jonsjava/anyserve/internal/fetch"
 	"github.com/jonsjava/anyserve/internal/steps"
-	"github.com/jonsjava/anyserve/internal/supervise"
 )
 
 // DefaultBackupKeep is how many backups are kept when an instance doesn't
@@ -77,7 +76,7 @@ func (a *App) MakeBackup(name string) (Backup, error) {
 			}
 		}()
 	} else if t.Status(in).State == "running" && d.Console.Save != "" {
-		if err := supervise.Send(in.ConsoleSocket(), d.Console.Save); err != nil {
+		if err := a.sendLine(in, d, d.Console.Save); err != nil {
 			a.Log("Couldn't ask the server to save first: %v", err)
 		} else {
 			a.Log("Asked the server to save; waiting 10 seconds")

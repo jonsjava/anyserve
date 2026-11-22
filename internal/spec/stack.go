@@ -52,7 +52,11 @@ type StackService struct {
 // Paths listed in the definition's files are mounted as files; anything
 // else is a folder, created before the stack starts.
 type Volume struct {
-	Path     string `yaml:"path" json:"path"`
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// Setting mounts the host folder the user chose in a folder setting
+	// (a media library, say) instead of a path inside the instance. If the
+	// setting is optional and left empty, the mount is skipped.
+	Setting  string `yaml:"setting,omitempty" json:"setting,omitempty"`
 	Target   string `yaml:"target" json:"target"`
 	ReadOnly bool   `yaml:"read_only,omitempty" json:"read_only,omitempty"`
 }
@@ -129,8 +133,17 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 		}
 		for j, v := range s.Volumes {
 			vw := fmt.Sprintf("%s.volumes[%d]", where, j)
-			if err := checkRelPath(v.Path); err != nil {
-				add("%s: path: %v", vw, err)
+			switch {
+			case v.Path != "" && v.Setting != "":
+				add("%s: set path or setting, not both", vw)
+			case v.Setting != "":
+				if st, ok := d.Setting(v.Setting); !ok || st.Type != "folder" {
+					add("%s: setting %q must name a folder setting", vw, v.Setting)
+				}
+			default:
+				if err := checkRelPath(v.Path); err != nil {
+					add("%s: path: %v", vw, err)
+				}
 			}
 			if !path.IsAbs(v.Target) || path.Clean(v.Target) != v.Target || v.Target == "/" {
 				add("%s: target must be a clean absolute path inside the container", vw)

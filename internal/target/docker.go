@@ -109,7 +109,7 @@ func (t *docker) Register(in *instance.Instance, d *spec.Definition, env Env) er
 func prepareVolumes(in *instance.Instance, d *spec.Definition) error {
 	for _, s := range d.Stack.Services {
 		for _, v := range s.Volumes {
-			if d.IsFileVolume(v.Path) {
+			if v.Setting != "" || d.IsFileVolume(v.Path) {
 				continue
 			}
 			p, err := steps.Resolve(in.ServerDir, v.Path)
@@ -294,6 +294,20 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 			cs.Environment = nil
 		}
 		for _, v := range s.Volumes {
+			if v.Setting != "" {
+				// A host folder the user chose. Checked again here in case
+				// it changed (or became a symlink) since install.
+				chosen, _ := ctx.Settings[v.Setting].(string)
+				if chosen == "" {
+					continue
+				}
+				src, err := spec.HostFolder(chosen)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", v.Setting, err)
+				}
+				cs.Volumes = append(cs.Volumes, composeVolume{Type: "bind", Source: src, Target: v.Target, ReadOnly: v.ReadOnly})
+				continue
+			}
 			src, err := steps.Resolve(in.ServerDir, v.Path)
 			if err != nil {
 				return nil, err
@@ -303,7 +317,7 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 		for _, p := range s.Ports {
 			def, _ := d.Port(p.Port)
 			host := "0.0.0.0"
-			if !def.Public {
+			if !def.Public && !in.Exposed(p.Port) {
 				host = "127.0.0.1"
 			}
 			for _, proto := range protocols(def.Protocol) {
