@@ -1,0 +1,94 @@
+schema: 1
+id: core-keeper
+name: Core Keeper
+description: Pugstorm's Core Keeper dedicated server, installed through SteamCMD and run on a virtual display.
+homepage: https://store.steampowered.com/app/1621690/Core_Keeper/
+version: "1"
+platforms: [linux]
+
+install:
+  steamcmd:
+    app_id: 1963720
+
+steps:
+  - type: steam_sdk
+  - type: chmod_exec
+    path: CoreKeeperServer
+  - type: mkdir
+    path: save
+
+settings:
+  - key: world_name
+    prompt: World name
+    type: string
+    default: Anyserve
+  - key: world_seed
+    prompt: World seed (0 for random)
+    type: int
+    default: 0
+    min: 0
+  - key: world_mode
+    prompt: World mode
+    type: choice
+    default: "0"
+    choices:
+      - { value: "0", label: Normal }
+      - { value: "1", label: Hard }
+      - { value: "2", label: Creative }
+      - { value: "4", label: Casual }
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 8
+    min: 1
+    max: 100
+
+ports:
+  - name: game
+    port: 27015
+    protocol: udp
+    public: false
+    description: Direct connections. Players normally join with the Game ID through Steam's relay, so forwarding is optional.
+
+run:
+  linux:
+    via: [xvfb]
+    command: CoreKeeperServer
+    args:
+      - -batchmode
+      - -logfile
+      - "-"
+      - -datapath
+      - "{{.Dir}}/save"
+      - -world
+      - "0"
+      - -worldname
+      - "{{.Settings.world_name}}"
+      - -worldseed
+      - "{{.Settings.world_seed}}"
+      - -worldmode
+      - "{{.Settings.world_mode}}"
+      - -maxplayers
+      - "{{.Settings.max_players}}"
+      - -port
+      - "{{.Ports.game}}"
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/linux64:{{.Dir}}"
+
+stop:
+  timeout_seconds: 60
+
+backup:
+  paths: [save]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, xvfb, libxi6, libxcursor1]
+
+linuxgsm:
+  status: upstream
+  name: ckserver
+
+notes:
+  - Needs xvfb-run on the host, because the server won't start without a display.
+  - Players join with the Game ID the server writes to GameID.txt in the server folder.

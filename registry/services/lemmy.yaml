@@ -1,0 +1,211 @@
+schema: 1
+id: lemmy
+name: Lemmy
+description: A federated link aggregator and forum (like Reddit, on the fediverse), as a stack of containers.
+homepage: https://join-lemmy.org
+version: "0.19.21-3"
+kind: stack
+
+settings:
+  - key: hostname
+    prompt: Domain name people will use (e.g. lemmy.example.com)
+    description: Federation uses this name, and it can't be changed after the first start.
+    type: string
+    default: localhost
+  - key: https
+    prompt: Will it be served over HTTPS by a proxy in front of it?
+    description: Say no only for testing on this machine. Federation needs HTTPS.
+    type: bool
+    default: true
+  - key: site_name
+    prompt: Site name
+    type: string
+    default: Anyserve Lemmy
+  - key: admin_username
+    prompt: Admin user name (created on first start)
+    type: string
+    default: admin
+  - key: admin_password
+    prompt: Admin password, 10 to 60 characters (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: admin_email
+    prompt: Admin email (optional)
+    type: string
+    optional: true
+  - key: postgres_password
+    prompt: Database password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: pictrs_api_key
+    prompt: Image server API key (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 10633
+    protocol: tcp
+    public: false
+    description: The whole site (UI, API, images, federation). Put an HTTPS proxy in front of it.
+
+files:
+  - path: config/lemmy.hjson
+    overwrite: true
+    template: |
+      # Written by Anyserve. Changes here are replaced on reconfigure.
+      {
+        hostname: {{json .Settings.hostname}}
+        bind: "0.0.0.0"
+        port: 8536
+        tls_enabled: {{truefalse .Settings.https}}
+        database: {
+          host: "postgres"
+          port: 5432
+          user: "lemmy"
+          password: {{json .Settings.postgres_password}}
+          database: "lemmy"
+        }
+        pictrs: {
+          url: "http://pictrs:8080/"
+          api_key: {{json .Settings.pictrs_api_key}}
+        }
+        # Used only on the first start, to create the admin and the site.
+        setup: {
+          admin_username: {{json .Settings.admin_username}}
+          admin_password: {{json .Settings.admin_password}}
+          site_name: {{json .Settings.site_name}}
+          {{if .Settings.admin_email}}admin_email: {{json .Settings.admin_email}}{{end}}
+        }
+      }
+  - path: config/nginx.conf
+    overwrite: true
+    template: |
+      # Written by Anyserve. Changes here are replaced on reconfigure.
+      pid /tmp/nginx.pid;
+      worker_processes auto;
+      events {}
+
+      http {
+        # The unprivileged image can only write under /tmp.
+        client_body_temp_path /tmp/client_temp;
+        proxy_temp_path /tmp/proxy_temp;
+        fastcgi_temp_path /tmp/fastcgi_temp;
+        uwsgi_temp_path /tmp/uwsgi_temp;
+        scgi_temp_path /tmp/scgi_temp;
+
+        # Look containers up through Docker's DNS on every request, so a
+        # restarted container is found again without restarting nginx.
+        resolver 127.0.0.11 valid=10s ipv6=off;
+
+        # Lemmy's backend answers writes and ActivityPub lookups from other
+        # servers; the web UI answers people's browsers.
+        map $request_method $anyserve_write {
+          GET 0;
+          HEAD 0;
+          default 1;
+        }
+        map $http_accept $anyserve_activitypub {
+          default 0;
+          "~application/(activity|ld)\+json" 1;
+        }
+        map "$anyserve_write$anyserve_activitypub" $anyserve_upstream {
+          "00" "http://lemmy-ui:1234";
+          default "http://lemmy:8536";
+        }
+
+        server {
+          listen 8080;
+          server_tokens off;
+          client_max_body_size 20M;
+
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+
+          set $anyserve_backend "http://lemmy:8536";
+          set $anyserve_ui "http://lemmy-ui:1234";
+
+          location / {
+            proxy_pass $anyserve_upstream;
+          }
+          # The API, images, feeds and discovery files always come from the
+          # backend, except security.txt, which the UI serves.
+          location ~ ^/(api|pictrs|feeds|nodeinfo|\.well-known|version|sitemap\.xml)(/|$) {
+            proxy_pass $anyserve_backend;
+          }
+          location = /.well-known/security.txt {
+            proxy_pass $anyserve_ui;
+          }
+        }
+      }
+
+stack:
+  services:
+    - name: postgres
+      image: postgres:16.16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+      env:
+        POSTGRES_USER: lemmy
+        POSTGRES_PASSWORD: "{{.Settings.postgres_password}}"
+        POSTGRES_DB: lemmy
+      volumes:
+        - { path: data/postgres, target: /var/lib/postgresql/data }
+      health:
+        command: [pg_isready, -U, lemmy, -d, lemmy]
+        interval_seconds: 5
+        retries: 20
+      shm_mb: 256
+    - name: pictrs
+      image: asonix/pictrs:0.5.25@sha256:6c64d7d282b67931716861b92bce48392791b57b571f5b7bbe132a10b4f0c39e
+      env:
+        PICTRS__SERVER__API_KEY: "{{.Settings.pictrs_api_key}}"
+        RUST_LOG: warn
+      volumes:
+        - { path: data/pictrs, target: /mnt }
+    - name: lemmy
+      image: dessalines/lemmy:0.19.21@sha256:839d72704b10d574a21dacab046d9369e241366e4092b950d801e821f779de29
+      env:
+        RUST_LOG: warn
+      volumes:
+        - { path: config/lemmy.hjson, target: /config/config.hjson, read_only: true }
+      depends_on: [postgres, pictrs]
+    - name: lemmy-ui
+      image: dessalines/lemmy-ui:0.19.21@sha256:d78d073a888c780f83e10850867841eca03261c8c459b65465fa337b4071768d
+      env:
+        LEMMY_UI_LEMMY_INTERNAL_HOST: lemmy:8536
+        LEMMY_UI_LEMMY_EXTERNAL_HOST: "{{.Settings.hostname}}"
+        LEMMY_UI_HTTPS: "{{truefalse .Settings.https}}"
+      depends_on: [lemmy]
+    - name: proxy
+      image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+      volumes:
+        - { path: config/nginx.conf, target: /etc/nginx/nginx.conf, read_only: true }
+      ports:
+        - { port: http, target: 8080 }
+      depends_on: [lemmy, lemmy-ui]
+
+stop:
+  timeout_seconds: 30
+
+console:
+  exec:
+    service: postgres
+    command: [psql, -U, lemmy, -d, lemmy]
+    description: the PostgreSQL shell for Lemmy's database
+
+backup:
+  paths: [data/postgres, data/pictrs, config]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Needs Docker with the Compose plugin.
+  - The site listens on 127.0.0.1 only. Put an HTTPS reverse proxy (Caddy, nginx, a tunnel) in front of it for your domain.
+  - The admin account is created on the first start; `anyserve info` doesn't show generated passwords, but they're in the instance's instance.json.

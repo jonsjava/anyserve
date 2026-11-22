@@ -1,0 +1,133 @@
+schema: 1
+id: dont-starve-together
+name: Don't Starve Together
+description: Klei's Don't Starve Together dedicated server (surface shard only), installed through SteamCMD.
+homepage: https://www.klei.com/games/dont-starve-together
+version: "1"
+platforms: [linux]
+
+install:
+  steamcmd:
+    app_id: 343050
+
+settings:
+  - key: cluster_token
+    prompt: Klei cluster token (from accounts.klei.com, Games, Game Servers)
+    description: Every DST server needs a token tied to your Klei account.
+    type: string
+    secret: true
+  - key: cluster_name
+    prompt: Server name
+    type: string
+    default: An Anyserve DST server
+  - key: cluster_description
+    prompt: Server description
+    type: string
+    optional: true
+  - key: game_mode
+    prompt: Game mode
+    type: choice
+    default: survival
+    choices:
+      - { value: survival, label: Survival }
+      - { value: endless, label: Endless }
+      - { value: wilderness, label: Wilderness }
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 6
+    min: 1
+    max: 64
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: pvp
+    prompt: Allow PvP?
+    type: bool
+    default: false
+
+ports:
+  - name: game
+    port: 10999
+    protocol: udp
+    public: true
+    description: Players connect here.
+
+files:
+  - path: DoNotStarveTogether/config/server/cluster_token.txt
+    overwrite: true
+    template: "{{.Settings.cluster_token}}"
+  - path: DoNotStarveTogether/config/server/cluster.ini
+    format: ini
+    template: |
+      [GAMEPLAY]
+      game_mode = survival
+
+      [NETWORK]
+      cluster_name = Anyserve
+
+      [MISC]
+      console_enabled = true
+
+      [SHARD]
+      shard_enabled = false
+    set:
+      GAMEPLAY.game_mode: "{{.Settings.game_mode}}"
+      GAMEPLAY.max_players: "{{.Settings.max_players}}"
+      GAMEPLAY.pvp: "{{truefalse .Settings.pvp}}"
+      NETWORK.cluster_name: "{{.Settings.cluster_name}}"
+      NETWORK.cluster_description: "{{.Settings.cluster_description}}"
+      NETWORK.cluster_password: "{{.Settings.password}}"
+      SHARD.shard_enabled: "false"
+  - path: DoNotStarveTogether/config/server/Master/server.ini
+    format: ini
+    template: |
+      [SHARD]
+      is_master = true
+    set:
+      NETWORK.server_port: "{{.Ports.game}}"
+      SHARD.is_master: "true"
+
+run:
+  linux:
+    command: bin64/dontstarve_dedicated_server_nullrenderer_x64
+    workdir: bin64
+    args:
+      - -bind_ip
+      - 0.0.0.0
+      - -port
+      - "{{.Ports.game}}"
+      - -persistent_storage_root
+      - "{{.Dir}}/DoNotStarveTogether"
+      - -conf_dir
+      - config
+      - -cluster
+      - server
+      - -players
+      - "{{.Settings.max_players}}"
+      - -shard
+      - Master
+
+stop:
+  command: c_shutdown()
+  timeout_seconds: 60
+
+console:
+  say: 'c_announce("{{.Message}}")'
+  save: c_save()
+
+backup:
+  paths: [DoNotStarveTogether/config/server]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1, libcurl3-gnutls]
+
+linuxgsm:
+  status: upstream
+  name: dstserver
+
+notes:
+  - Surface world only. The Caves shard is a second server process, which Anyserve can't run as part of one service yet.

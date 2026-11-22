@@ -1,0 +1,168 @@
+schema: 1
+id: rust
+name: Rust
+description: Facepunch's Rust dedicated server, installed through SteamCMD.
+homepage: https://rust.facepunch.com
+version: "2"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 258550
+
+settings:
+  - key: server_name
+    prompt: Server name (shown in the server browser)
+    type: string
+    default: An Anyserve Rust server
+  - key: description
+    prompt: Server description
+    type: string
+    optional: true
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 50
+    min: 1
+    max: 500
+  - key: world_size
+    prompt: Map size
+    type: int
+    default: 3500
+    min: 1000
+    max: 6000
+  - key: seed
+    prompt: Map seed
+    type: int
+    default: 1337
+    min: 0
+    max: 2147483647
+  - key: identity
+    prompt: Save folder name (server identity)
+    type: string
+    default: anyserve
+  - key: rcon_password
+    prompt: RCON password
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 28015
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 28017
+    protocol: udp
+    public: true
+    description: Server browser queries.
+  - name: rcon
+    port: 28016
+    protocol: tcp
+    public: false
+    description: Remote admin (WebRCON). Keep this private.
+  - name: app
+    port: 28082
+    protocol: tcp
+    public: true
+    description: Rust+ companion app.
+
+run:
+  linux:
+    command: RustDedicated
+    args:
+      - -batchmode
+      - -nographics
+      - +server.ip
+      - 0.0.0.0
+      - +server.port
+      - "{{.Ports.game}}"
+      - +server.queryport
+      - "{{.Ports.query}}"
+      - +rcon.port
+      - "{{.Ports.rcon}}"
+      - +rcon.password
+      - "{{.Settings.rcon_password}}"
+      - +rcon.web
+      - "1"
+      - +app.port
+      - "{{.Ports.app}}"
+      - +server.hostname
+      - "{{.Settings.server_name}}"
+      - "{{if .Settings.description}}+server.description{{end}}"
+      - "{{.Settings.description}}"
+      - +server.identity
+      - "{{.Settings.identity}}"
+      - +server.level
+      - Procedural Map
+      - +server.seed
+      - "{{.Settings.seed}}"
+      - +server.worldsize
+      - "{{.Settings.world_size}}"
+      - +server.maxplayers
+      - "{{.Settings.max_players}}"
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/RustDedicated_Data/Plugins/x86_64:{{.Dir}}/RustDedicated_Data/Plugins"
+  windows:
+    command: RustDedicated.exe
+    args:
+      - -batchmode
+      - -nographics
+      - +server.ip
+      - 0.0.0.0
+      - +server.port
+      - "{{.Ports.game}}"
+      - +server.queryport
+      - "{{.Ports.query}}"
+      - +rcon.port
+      - "{{.Ports.rcon}}"
+      - +rcon.password
+      - "{{.Settings.rcon_password}}"
+      - +rcon.web
+      - "1"
+      - +app.port
+      - "{{.Ports.app}}"
+      - +server.hostname
+      - "{{.Settings.server_name}}"
+      - "{{if .Settings.description}}+server.description{{end}}"
+      - "{{.Settings.description}}"
+      - +server.identity
+      - "{{.Settings.identity}}"
+      - +server.level
+      - Procedural Map
+      - +server.seed
+      - "{{.Settings.seed}}"
+      - +server.worldsize
+      - "{{.Settings.world_size}}"
+      - +server.maxplayers
+      - "{{.Settings.max_players}}"
+
+stop:
+  command: quit
+  timeout_seconds: 120
+
+console:
+  say: "say {{.Message}}"
+  save: server.save
+  rcon:
+    protocol: webrcon
+    port: rcon
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [server]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1]
+
+linuxgsm:
+  status: upstream
+  name: rustserver
+
+notes:
+  - The server download is about 10 GB, and the first start builds the map, which takes several minutes.
+  - Facepunch pushes a forced update on the first Thursday of each month. Run `anyserve update` then.
+  - No native macOS server exists. Use the container target on a Mac.

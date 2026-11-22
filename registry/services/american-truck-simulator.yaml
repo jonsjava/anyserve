@@ -1,0 +1,101 @@
+schema: 1
+id: american-truck-simulator
+name: American Truck Simulator
+description: SCS Software's American Truck Simulator convoy dedicated server, installed through SteamCMD.
+homepage: https://americantrucksimulator.com
+version: "1"
+platforms: [linux]
+
+install:
+  steamcmd:
+    app_id: 2239530
+  # Starting files from the Pelican eggs. server_packages.* says which map
+  # and DLC the server offers; export your own from the game (console:
+  # export_server_packages) to match your DLC, and Anyserve keeps it.
+  downloads:
+    - url: https://raw.githubusercontent.com/pelican-eggs/games-steamcmd/main/truck-simulator/server_config.sii
+      sha256: 514ab434c818e666a71cec854ee17fe029ac4011ceaf927a000dac03f4c8e93d
+      to: .local/share/American Truck Simulator/server_config.sii
+    - url: https://raw.githubusercontent.com/pelican-eggs/games-steamcmd/main/truck-simulator/american-truck-simulator/ats-files/server_packages.sii
+      sha256: a4f6d740629ac196c57f1037e6f8d06d21e7a3abe7a2b0b9b5c0613756a61b50
+      to: .local/share/American Truck Simulator/server_packages.sii
+    - url: https://raw.githubusercontent.com/pelican-eggs/games-steamcmd/main/truck-simulator/american-truck-simulator/ats-files/server_packages.dat
+      sha256: 08ce75d97d33e23f30f5286fba094392a59fcce28e5e752d0eb46a32e2683931
+      to: .local/share/American Truck Simulator/server_packages.dat
+
+steps:
+  - type: steam_sdk
+  - type: chmod_exec
+    path: bin/linux_x64/amtrucks_server
+
+settings:
+  - key: lobby_name
+    prompt: Lobby name
+    type: string
+    default: Anyserve convoy
+  - key: description
+    prompt: Description
+    type: string
+    optional: true
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 8
+    min: 1
+    max: 8
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: logon_token
+    prompt: Steam Game Server Login Token (empty for a temporary server ID)
+    description: Create one at steamcommunity.com/dev/managegameservers with app ID 270880, so the server keeps the same ID across restarts.
+    type: string
+    secret: true
+    optional: true
+
+ports:
+  - name: game
+    port: 27015
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 27016
+    protocol: udp
+    public: true
+    description: Steam query.
+
+files:
+  - path: .local/share/American Truck Simulator/server_config.sii
+    format: lines
+    set:
+      " lobby_name:": ' lobby_name: "{{.Settings.lobby_name}}"'
+      " description:": ' description: "{{.Settings.description}}"'
+      " password:": ' password: "{{.Settings.password}}"'
+      " max_players:": " max_players: {{.Settings.max_players}}"
+      " connection_dedicated_port:": " connection_dedicated_port: {{.Ports.game}}"
+      " query_dedicated_port:": " query_dedicated_port: {{.Ports.query}}"
+      " server_logon_token:": ' server_logon_token: "{{.Settings.logon_token}}"'
+
+run:
+  linux:
+    command: bin/linux_x64/amtrucks_server
+    args: [-nosingle]
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/linux64:{{.Dir}}/bin/linux_x64"
+
+stop:
+  timeout_seconds: 30
+
+backup:
+  paths: [.local/share/American Truck Simulator]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: upstream
+  name: atsserver

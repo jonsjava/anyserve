@@ -1,0 +1,124 @@
+schema: 1
+id: killing-floor
+name: Killing Floor
+description: Tripwire's original Killing Floor dedicated server, installed through SteamCMD with a Steam account.
+homepage: https://store.steampowered.com/app/1250/Killing_Floor/
+version: "1"
+platforms: [linux]
+
+install:
+  steamcmd:
+    app_id: 215360
+    login: required
+
+steps:
+  # The libraries shipped in System/ are too old for current Steam; LinuxGSM
+  # replaces them with SteamCMD's own.
+  - type: steamcmd_file
+    from: linux32/steamclient.so
+    to: System/steamclient.so
+  - type: steamcmd_file
+    from: linux32/libtier0_s.so
+    to: System/libtier0_s.so
+  - type: steamcmd_file
+    from: linux32/libvstdlib_s.so
+    to: System/libvstdlib_s.so
+  - type: copy_file_if_missing
+    from: System/Default.ini
+    to: System/KFServer.ini
+  - type: chmod_exec
+    path: System/ucc-bin
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: An Anyserve Killing Floor server
+  - key: map
+    prompt: Starting map
+    type: string
+    default: KF-BioticsLab
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 6
+    min: 1
+    max: 32
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: admin_password
+    prompt: Admin password for web admin (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 7707
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 7708
+    protocol: udp
+    public: true
+    description: Server browser query (game port + 1).
+  - name: master
+    port: 28852
+    protocol: both
+    public: true
+    description: Master server listing.
+  - name: steam
+    port: 20560
+    protocol: udp
+    public: true
+    description: Steam.
+  - name: webadmin
+    port: 8075
+    protocol: tcp
+    public: false
+    description: Web admin.
+
+files:
+  - path: System/KFServer.ini
+    format: ini
+    set:
+      URL.Port: "{{.Ports.game}}"
+      Engine.GameReplicationInfo.ServerName: "{{.Settings.server_name}}"
+      Engine.GameInfo.MaxPlayers: "{{.Settings.max_players}}"
+      Engine.AccessControl.GamePassword: "{{.Settings.password}}"
+      Engine.AccessControl.AdminPassword: "{{.Settings.admin_password}}"
+      UWeb.WebServer.bEnabled: "True"
+      UWeb.WebServer.ListenPort: "{{.Ports.webadmin}}"
+      IpDrv.MasterServerUplink.ServerBehindNAT: "True"
+
+run:
+  linux:
+    command: System/ucc-bin
+    workdir: System
+    args:
+      - server
+      - "{{.Settings.map}}.rom?game=KFmod.KFGameType?VACSecured=true?MaxPlayers={{.Settings.max_players}}"
+      - -nohomedir
+      - ini=KFServer.ini
+      - log=KFServer.log
+
+stop:
+  timeout_seconds: 30
+
+backup:
+  paths: [System/KFServer.ini]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1, lib32stdc++6]
+
+linuxgsm:
+  status: upstream
+  name: kfserver
+
+notes:
+  - Needs a Steam account that owns Killing Floor. Sign in once with `anyserve steam login <user>`; SteamCMD keeps the session and Anyserve never sees the password.

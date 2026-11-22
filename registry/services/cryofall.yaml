@@ -1,0 +1,50 @@
+schema: 1
+id: cryofall
+name: CryoFall
+description: AtomicTorch's CryoFall dedicated server, a .NET server installed through SteamCMD.
+homepage: https://cryofall.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 1061710
+
+ports:
+  - name: game
+    port: 6000
+    protocol: udp
+    public: true
+    description: Players connect here.
+
+run:
+  linux:
+    via: [dotnet]
+    command: Binaries/Server/CryoFall_Server.dll
+    args: [loadOrNew]
+  windows:
+    via: [dotnet]
+    command: Binaries/Server/CryoFall_Server.dll
+    args: [loadOrNew]
+
+stop:
+  command: stop 10 Server is shutting down
+  timeout_seconds: 60
+
+console:
+  save: save
+
+backup:
+  paths: [Data]
+
+container:
+  image: mcr.microsoft.com/dotnet/runtime:6.0
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: missing
+  notes: Not in LinuxGSM. Sourced from the Pelican/Pterodactyl egg.
+
+notes:
+  - Needs the .NET 6 runtime on the host.
+  - Server name, password and port live in Data/SettingsServer.xml, which the server creates on first start. Anyserve can't edit XML yet, so change them there; the game port setting above must match it.

@@ -1,0 +1,130 @@
+schema: 1
+id: terraria
+name: Terraria
+description: Re-Logic's official vanilla Terraria dedicated server.
+homepage: https://terraria.org
+version: "1.4.5.8-1"
+platforms: [linux, windows, darwin]
+
+install:
+  archive:
+    url: https://terraria.org/api/download/pc-dedicated-server/terraria-server-1458.zip
+    sha256: f513a4ac9789d34af766291ae217c9cd7d9472e13782a0e2b17512f70d7a8334
+    subdir:
+      linux: 1458/Linux
+      windows: 1458/Windows
+      darwin: "1458/Mac/Terraria Server.app/Contents/MacOS"
+
+steps:
+  - type: chmod_exec
+    path: TerrariaServer.bin.x86_64
+    os: [linux]
+  - type: chmod_exec
+    path: TerrariaServer.bin.osx
+    os: [darwin]
+  - type: mkdir
+    path: worlds
+
+settings:
+  - key: world_name
+    prompt: World name
+    type: string
+    default: Anyserve
+  - key: world_size
+    prompt: World size (used only when the world is first created)
+    type: choice
+    default: "2"
+    choices:
+      - { value: "1", label: Small }
+      - { value: "2", label: Medium }
+      - { value: "3", label: Large }
+  - key: difficulty
+    prompt: Difficulty (used only when the world is first created)
+    type: choice
+    default: "0"
+    choices:
+      - { value: "0", label: Classic }
+      - { value: "1", label: Expert }
+      - { value: "2", label: Master }
+      - { value: "3", label: Journey }
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 8
+    min: 1
+    max: 255
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: motd
+    prompt: Message of the day
+    type: string
+    default: Welcome to an Anyserve Terraria server!
+    optional: true
+  - key: seed
+    prompt: World seed (leave empty for random)
+    type: string
+    optional: true
+
+ports:
+  - name: game
+    port: 7777
+    protocol: tcp
+    public: true
+    description: Players connect here.
+
+files:
+  - path: serverconfig.txt
+    overwrite: true
+    template: |
+      # Written by Anyserve. Changes here are replaced on reconfigure;
+      # use `anyserve config` to change settings instead.
+      world={{.Dir}}/worlds/{{.Settings.world_name}}.wld
+      worldpath={{.Dir}}/worlds
+      worldname={{.Settings.world_name}}
+      autocreate={{.Settings.world_size}}
+      difficulty={{.Settings.difficulty}}
+      {{if .Settings.seed}}seed={{.Settings.seed}}
+      {{end}}maxplayers={{.Settings.max_players}}
+      port={{.Ports.game}}
+      {{if .Settings.password}}password={{.Settings.password}}
+      {{end}}motd={{.Settings.motd}}
+      secure=1
+      upnp=0
+      banlist={{.Dir}}/banlist.txt
+
+run:
+  linux:
+    command: TerrariaServer.bin.x86_64
+    args: ["-config", "serverconfig.txt"]
+  windows:
+    command: TerrariaServer.exe
+    args: ["-config", "serverconfig.txt"]
+  darwin:
+    command: TerrariaServer.bin.osx
+    args: ["-config", "serverconfig.txt"]
+
+stop:
+  command: exit
+  timeout_seconds: 60
+
+console:
+  say: "say {{.Message}}"
+  save: save
+
+backup:
+  paths: [worlds, serverconfig.txt, banlist.txt]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: upstream
+  name: terrariaserver
+
+notes:
+  - Vanilla server only. A TShock variant is planned.
+  - The world is created on first start, which can take a minute.

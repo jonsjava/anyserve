@@ -1,0 +1,125 @@
+schema: 1
+id: counter-strike-2
+name: Counter-Strike 2
+description: Valve's Counter-Strike 2 dedicated server, installed through SteamCMD (about 35 GB).
+homepage: https://www.counter-strike.net
+version: "2"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 730
+
+steps:
+  - type: steam_sdk
+    os: [linux]
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: An Anyserve CS2 server
+  - key: game
+    prompt: Game mode
+    type: choice
+    default: competitive
+    choices:
+      - { value: casual, label: Casual }
+      - { value: competitive, label: Competitive }
+      - { value: wingman, label: Wingman }
+      - { value: deathmatch, label: Deathmatch }
+      - { value: armsrace, label: Arms Race }
+  - key: map
+    prompt: Starting map
+    type: string
+    default: de_dust2
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 12
+    min: 1
+    max: 64
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: rcon_password
+    prompt: RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: gslt
+    prompt: Game Server Login Token (empty for a LAN-only server)
+    description: Create one at steamcommunity.com/dev/managegameservers with app ID 730.
+    type: string
+    secret: true
+    optional: true
+
+ports:
+  - name: game
+    port: 27015
+    protocol: both
+    public: true
+    description: Players connect here.
+  - name: tv
+    port: 27020
+    protocol: udp
+    public: false
+    description: CSTV spectators.
+
+run:
+  linux:
+    command: game/bin/linuxsteamrt64/cs2
+    args: &cs2args
+      - -dedicated
+      - -ip
+      - 0.0.0.0
+      - -port
+      - "{{.Ports.game}}"
+      - -tv_port
+      - "{{.Ports.tv}}"
+      - -maxplayers
+      - "{{.Settings.max_players}}"
+      - -usercon
+      - +game_type
+      - '{{if eq .Settings.game "deathmatch" "armsrace"}}1{{else}}0{{end}}'
+      - +game_mode
+      - '{{if eq .Settings.game "competitive" "deathmatch"}}1{{else if eq .Settings.game "wingman"}}2{{else}}0{{end}}'
+      - +map
+      - "{{.Settings.map}}"
+      - +hostname
+      - "{{.Settings.server_name}}"
+      - "{{if .Settings.password}}+sv_password{{end}}"
+      - "{{.Settings.password}}"
+      - +rcon_password
+      - "{{.Settings.rcon_password}}"
+      - "{{if .Settings.gslt}}+sv_setsteamaccount{{end}}"
+      - "{{.Settings.gslt}}"
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/game/bin/linuxsteamrt64"
+  windows:
+    command: game/bin/win64/cs2.exe
+    args: *cs2args
+
+stop:
+  command: quit
+  timeout_seconds: 30
+
+console:
+  say: "say {{.Message}}"
+  rcon:
+    protocol: source
+    port: game
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [game/csgo/cfg]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1]
+
+linuxgsm:
+  status: upstream
+  name: cs2server

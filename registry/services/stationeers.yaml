@@ -1,0 +1,119 @@
+schema: 1
+id: stationeers
+name: Stationeers
+description: RocketWerkz's Stationeers dedicated server, installed through SteamCMD.
+homepage: https://store.steampowered.com/app/544550/Stationeers/
+version: "2"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 600760
+
+steps:
+  - type: steam_sdk
+    os: [linux]
+  - type: mkdir
+    path: saves
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: An Anyserve Stationeers server
+  - key: save_name
+    prompt: Save name
+    type: string
+    default: anyserve
+  - key: world
+    prompt: World
+    description: Used only when the save is first created.
+    type: choice
+    default: Lunar
+    choices:
+      - { value: Lunar, label: Moon }
+      - { value: Mars2, label: Mars }
+      - { value: Europa3, label: Europa }
+      - { value: Mimas, label: Mimas }
+      - { value: Vulcan2, label: Vulcan }
+      - { value: Venus, label: Venus }
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 10
+    min: 1
+    max: 30
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: save_interval
+    prompt: Autosave every N seconds
+    type: int
+    default: 300
+    min: 60
+
+ports:
+  - name: game
+    port: 27016
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: update
+    port: 27015
+    protocol: udp
+    public: true
+    description: Steam query and updates.
+
+run:
+  linux:
+    command: rocketstation_DedicatedServer.x86_64
+    args: &stargs
+      - -LOAD
+      - "{{.Settings.save_name}}"
+      - "{{.Settings.world}}"
+      - -settings
+      - StartLocalHost
+      - "true"
+      - ServerVisible
+      - "true"
+      - GamePort
+      - "{{.Ports.game}}"
+      - UpdatePort
+      - "{{.Ports.update}}"
+      - AutoSave
+      - "true"
+      - SaveInterval
+      - "{{.Settings.save_interval}}"
+      - ServerName
+      - "{{.Settings.server_name}}"
+      - ServerMaxPlayers
+      - "{{.Settings.max_players}}"
+      - "{{if .Settings.password}}ServerPassword{{end}}"
+      - "{{.Settings.password}}"
+      - UPNPEnabled
+      - "false"
+      # Without this the server can fail with "No network adapters with an
+      # IPv4 address" on hosts with several interfaces (Docker bridges).
+      - LocalIpAddress
+      - 0.0.0.0
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}:{{.Dir}}/rocketstation_DedicatedServer_Data/Plugins/x86_64"
+  windows:
+    command: rocketstation_DedicatedServer.exe
+    args: *stargs
+
+stop:
+  timeout_seconds: 90
+
+backup:
+  paths: [saves, setting.xml]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1]
+
+linuxgsm:
+  status: upstream
+  name: stserver

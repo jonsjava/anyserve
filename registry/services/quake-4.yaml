@@ -1,0 +1,125 @@
+schema: 1
+id: quake-4
+name: Quake 4
+description: id Software's Quake 4 dedicated server (1.4.2), from LinuxGSM's archive of the official Linux build.
+homepage: https://store.steampowered.com/app/2210/Quake_4/
+version: "1.4.2-1"
+platforms: [linux]
+
+install:
+  archive:
+    url: https://linuxgsm.download/Quake4/q4-1.4.2-linux-i386-linuxgsm-20261101.tar.xz
+    sha256: f24a0147cceb98fa78c3041c613f460488d9e6e2a2165de56547d33efefa20fa
+
+steps:
+  - type: chmod_exec
+    path: q4ded.x86
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: An Anyserve Quake 4 server
+  - key: game_type
+    prompt: Game type
+    type: choice
+    default: DM
+    choices:
+      - { value: DM, label: Deathmatch }
+      - { value: Team DM, label: Team deathmatch }
+      - { value: Tourney, label: Tourney }
+      - { value: CTF, label: Capture the flag }
+      - { value: Arena CTF, label: Arena CTF }
+  - key: map
+    prompt: Starting map
+    type: string
+    default: mp/q4dm1
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 16
+    min: 2
+    max: 16
+  - key: password
+    prompt: Server password (empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: rcon_password
+    prompt: Remote console password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 28004
+    protocol: udp
+    public: true
+    description: Players connect here.
+
+files:
+  - path: q4base/anyserve.cfg
+    overwrite: true
+    template: |
+      // Written by Anyserve. Changes here are replaced on reconfigure;
+      // put your own settings in q4base/server.cfg instead.
+      set si_name "{{.Settings.server_name}}"
+      set si_gameType "{{.Settings.game_type}}"
+      set si_maxPlayers {{.Settings.max_players}}
+      set si_map "{{.Settings.map}}"
+      set net_serverDedicated 1
+      set si_usePass {{if .Settings.password}}1{{else}}0{{end}}
+      set g_password "{{.Settings.password}}"
+      set net_serverRemoteConsolePassword "{{.Settings.rcon_password}}"
+      exec server.cfg
+  - path: q4base/server.cfg
+    template: |
+      // Your own Quake 4 server settings. Anyserve never changes this file.
+      set si_warmup 1
+      set si_fragLimit 25
+      set si_timeLimit 15
+
+run:
+  linux:
+    command: q4ded.x86
+    args:
+      - +set
+      - sv_punkbuster
+      - "0"
+      - +set
+      - fs_basepath
+      - "{{.Dir}}"
+      - +set
+      - fs_savepath
+      - "{{.Dir}}"
+      - +set
+      - net_port
+      - "{{.Ports.game}}"
+      - +exec
+      - anyserve.cfg
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}"
+
+stop:
+  command: quit
+  timeout_seconds: 20
+
+console:
+  say: "say {{.Message}}"
+
+backup:
+  paths: [q4base/server.cfg]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, libc6-i386]
+
+linuxgsm:
+  status: upstream
+  name: q4server
+
+notes:
+  - Bring your own game data. The archive holds the 1.4.2 server and patch paks, but not the base game's q4base/pak001.pk4 to pak012.pk4, which aren't redistributable. Copy those from your own copy of Quake 4 (Steam app 2210) into q4base, or the server stops with "Couldn't load scripts/main.script".
+  - The server crashes on start if its folder path is very long (over about 100 characters); the default location is fine.
+  - A 32-bit server. On 64-bit Debian or Ubuntu it needs the 32-bit C library (sudo apt install libc6-i386).
