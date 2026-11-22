@@ -1,6 +1,7 @@
 // Command regbuild builds, signs and verifies registry indexes.
 // `make registry` runs it to refresh the snapshot embedded in the anyserve
-// binary, and `make publish-registry` to publish the main registry.
+// binary, and the Publish registry workflow (or `make publish-registry`) to
+// publish the main registry.
 //
 //	regbuild -keygen -key path/to/new.key
 //	regbuild -src registry/services -out internal/registry/snapshot -key path/to.key
