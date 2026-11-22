@@ -1,0 +1,76 @@
+schema: 1
+id: ntfy
+name: ntfy
+description: A simple push notification server. Send alerts to your phone or desktop with a plain HTTP request.
+homepage: https://ntfy.sh
+version: "2.38.1-1"
+kind: stack
+
+settings:
+  - key: base_url
+    prompt: Address people and apps will use (e.g. https://ntfy.example.com)
+    description: Used for attachment links and the web app. Leave the default for testing on this machine.
+    type: string
+    default: http://localhost:2586
+  - key: default_access
+    prompt: Access for people without an account
+    type: choice
+    default: read-write
+    choices:
+      - { value: read-write, label: Anyone can publish and subscribe }
+      - { value: read-only, label: "Anyone can subscribe, only users can publish" }
+      - { value: deny-all, label: Only users (add them from the console) }
+  - key: behind_proxy
+    prompt: Will it sit behind a reverse proxy?
+    description: Makes rate limits use the visitor's real address from X-Forwarded-For.
+    type: bool
+    default: false
+
+ports:
+  - name: http
+    port: 2586
+    protocol: tcp
+    public: false
+    description: The web app, publishing and subscriptions.
+
+stack:
+  services:
+    - name: ntfy
+      image: binwiederhier/ntfy:v2.38.1@sha256:038da2be5e668fee6d36a62884eea48975e1b71c29a56964e5298c1b9165a573
+      command: [serve]
+      env:
+        NTFY_BASE_URL: "{{.Settings.base_url}}"
+        NTFY_LISTEN_HTTP: ":8080"
+        NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+        NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+        NTFY_AUTH_DEFAULT_ACCESS: "{{.Settings.default_access}}"
+        NTFY_ATTACHMENT_CACHE_DIR: /var/lib/ntfy/attachments
+        NTFY_BEHIND_PROXY: "{{truefalse .Settings.behind_proxy}}"
+        NTFY_ENABLE_LOGIN: "true"
+      volumes:
+        - { path: data, target: /var/lib/ntfy }
+      ports:
+        - { port: http, target: 8080 }
+      health:
+        command: [ntfy, health, --url, "http://127.0.0.1:8080"]
+        interval_seconds: 30
+        retries: 3
+
+console:
+  exec:
+    service: ntfy
+    command: [sh]
+    description: a shell in the ntfy container, for `ntfy user add` and `ntfy access`
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - "Send a test message: curl -d 'Hello' http://localhost:2586/test, then subscribe to the topic test in the app."
+  - "Add users from the console: anyserve console <name>, then ntfy user add --role=admin yourname."
+  - Phones need to reach the server, so add `--expose http` for your LAN or put an HTTPS proxy in front of it.

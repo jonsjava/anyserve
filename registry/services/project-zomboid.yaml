@@ -1,0 +1,119 @@
+schema: 1
+id: project-zomboid
+name: Project Zomboid
+description: The Indie Stone's zombie survival sandbox, as an official dedicated server.
+homepage: https://projectzomboid.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 380870
+
+steps:
+  - type: chmod_exec
+    path: start-server.sh
+    os: [linux]
+
+settings:
+  - key: public_name
+    prompt: Server name shown in the server browser
+    type: string
+    default: Anyserve Zomboid
+  - key: public
+    prompt: List the server in the public server browser?
+    type: bool
+    default: false
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: admin_password
+    prompt: Password for the built-in admin account (leave empty to generate one)
+    description: Used when the server first starts. Log in as admin with it.
+    type: string
+    secret: true
+    generate: true
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 16
+    min: 1
+    max: 100
+  - key: rcon_password
+    prompt: RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 16261
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: direct
+    port: 16262
+    protocol: udp
+    public: true
+    description: Direct connections between players and the server.
+  - name: rcon
+    port: 27015
+    protocol: tcp
+    public: false
+    description: Remote console for `anyserve console`.
+
+files:
+  # Zomboid writes this on first start; Anyserve sets these keys before every start.
+  - path: Zomboid/Server/anyserve.ini
+    format: lines
+    set:
+      "PublicName=": "PublicName={{.Settings.public_name}}"
+      "Public=": "Public={{truefalse .Settings.public}}"
+      "Password=": "Password={{.Settings.password}}"
+      "MaxPlayers=": "MaxPlayers={{.Settings.max_players}}"
+      "DefaultPort=": "DefaultPort={{.Ports.game}}"
+      "UDPPort=": "UDPPort={{.Ports.direct}}"
+      "RCONPort=": "RCONPort={{.Ports.rcon}}"
+      "RCONPassword=": "RCONPassword={{.Settings.rcon_password}}"
+
+run:
+  linux:
+    command: start-server.sh
+    args: &args
+      - -servername
+      - anyserve
+      - -adminpassword
+      - "{{.Settings.admin_password}}"
+  windows:
+    command: StartServer64.bat
+    args: *args
+
+stop:
+  command: quit
+  timeout_seconds: 120
+
+console:
+  say: 'servermsg "{{.Message}}"'
+  save: save
+  rcon:
+    protocol: source
+    port: rcon
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [Zomboid/Saves, Zomboid/Server, Zomboid/db]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: upstream
+  name: pzserver
+
+notes:
+  - The server's files are in Zomboid/Server/anyserve.ini (settings) and anyserve_SandboxVars.lua (world rules) inside the server folder. Anyserve only changes the keys it manages.
+  - The first start creates the world and can take a few minutes. Settings apply from the second start, once Zomboid has written its config.
+  - Zomboid uses up to 8 GB of memory by default. Change -Xmx in ProjectZomboid64.json to lower it.

@@ -1,0 +1,62 @@
+schema: 1
+id: n8n
+name: n8n
+description: A workflow automation tool. Connect apps and APIs with a visual editor, like a self-hosted Zapier.
+homepage: https://n8n.io
+version: "2.48.7-1"
+kind: stack
+
+settings:
+  - key: url
+    prompt: Address people and webhooks will use (e.g. https://n8n.example.com/)
+    description: Webhook URLs shown in the editor start with this.
+    type: string
+    default: http://localhost:5678/
+  - key: encryption_key
+    prompt: Key that encrypts saved credentials (leave empty to generate one)
+    description: Keep it safe. Credentials can't be read without it.
+    type: string
+    secret: true
+    generate: true
+  - key: timezone
+    prompt: Time zone for schedules (e.g. Europe/London)
+    type: string
+    default: UTC
+
+ports:
+  - name: http
+    port: 5678
+    protocol: tcp
+    public: false
+    description: The editor, API and webhooks.
+
+stack:
+  services:
+    - name: n8n
+      image: n8nio/n8n:2.48.7@sha256:fabce3e9678a07d2dde83bd8f5124017f3ec457d0a3fc6b63bb4cec465d63861
+      env:
+        N8N_USER_FOLDER: /data
+        N8N_ENCRYPTION_KEY: "{{.Settings.encryption_key}}"
+        WEBHOOK_URL: "{{.Settings.url}}"
+        N8N_EDITOR_BASE_URL: "{{.Settings.url}}"
+        GENERIC_TIMEZONE: "{{.Settings.timezone}}"
+        TZ: "{{.Settings.timezone}}"
+        N8N_SECURE_COOKIE: "{{if hasPrefix .Settings.url \"https://\"}}true{{else}}false{{end}}"
+        N8N_DIAGNOSTICS_ENABLED: "false"
+        N8N_RUNNERS_ENABLED: "true"
+      volumes:
+        - { path: data, target: /data }
+      ports:
+        - { port: http, target: 5678 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Create the owner account on your first visit.
+  - For webhooks from the internet, put an HTTPS proxy in front of it and set url to that address.

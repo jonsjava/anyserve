@@ -1,0 +1,121 @@
+schema: 1
+id: arma-reforger
+name: Arma Reforger
+description: Bohemia Interactive's military sandbox, as an official dedicated server.
+homepage: https://reforger.armaplatform.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 1874900
+
+steps:
+  - type: chmod_exec
+    path: ArmaReforgerServer
+    os: [linux]
+  - type: mkdir
+    path: profile
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Arma Reforger
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: admin_password
+    prompt: Admin password, for #login in the game (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 32
+    min: 1
+    max: 128
+  - key: scenario
+    prompt: Scenario ID
+    description: The default is Conflict on Everon. Others are listed by the server with -listScenarios.
+    type: string
+    default: "{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
+  - key: crossplay
+    prompt: Allow Xbox and PlayStation players?
+    type: bool
+    default: false
+  - key: public_address
+    prompt: This server's public IP address (optional; detected automatically if empty)
+    type: string
+    optional: true
+
+ports:
+  - name: game
+    port: 2001
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 17777
+    protocol: udp
+    public: true
+    description: Steam queries (A2S), for server browsers.
+
+files:
+  - path: config.json
+    overwrite: true
+    template: |
+      {
+        "bindAddress": "0.0.0.0",
+        "bindPort": {{.Ports.game}},
+        "publicAddress": {{json .Settings.public_address}},
+        "publicPort": {{.Ports.game}},
+        "a2s": { "address": "0.0.0.0", "port": {{.Ports.query}} },
+        "game": {
+          "name": {{json .Settings.server_name}},
+          "password": {{json .Settings.password}},
+          "passwordAdmin": {{json .Settings.admin_password}},
+          "scenarioId": {{json .Settings.scenario}},
+          "maxPlayers": {{.Settings.max_players}},
+          "visible": true,
+          "crossPlatform": {{truefalse .Settings.crossplay}},
+          "gameProperties": { "battlEye": true }
+        }
+      }
+
+run:
+  linux:
+    command: ArmaReforgerServer
+    args: &args
+      - -config
+      - "{{.Dir}}/config.json"
+      - -profile
+      - "{{.Dir}}/profile"
+      - -maxFPS
+      - "60"
+      - -backendlog
+      - -nothrow
+  windows:
+    command: ArmaReforgerServer.exe
+    args: *args
+
+stop:
+  timeout_seconds: 60
+
+backup:
+  paths: [config.json, profile]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, libcurl4, libssl3]
+
+linuxgsm:
+  status: upstream
+  name: armarserver
+
+notes:
+  - Workshop mods aren't supported yet, because Anyserve rewrites config.json from its settings.
+  - Players with admin rights log in from the in-game chat with `#login <admin password>`.

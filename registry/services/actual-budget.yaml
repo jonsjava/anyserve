@@ -1,0 +1,38 @@
+schema: 1
+id: actual-budget
+name: Actual Budget
+description: A local-first personal finance app using envelope budgeting, with sync between your devices.
+homepage: https://actualbudget.org
+version: "26.11.0-1"
+kind: stack
+
+ports:
+  - name: http
+    port: 5006
+    protocol: tcp
+    public: false
+    description: The web app and sync server.
+
+stack:
+  services:
+    - name: actual
+      image: actualbudget/actual-server:26.11.0@sha256:06cf186569cf58d93e12659ff1a517b65b5b0ebee7050a3991d4bd8a1d398da6
+      env:
+        ACTUAL_PORT: "5006"
+        ACTUAL_DATA_DIR: /data
+      volumes:
+        - { path: data, target: /data }
+      ports:
+        - { port: http, target: 5006 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Set a server password on your first visit.
+  - Browsers only run Actual over HTTPS or on http://localhost. To use it from other devices, put an HTTPS proxy in front of it.

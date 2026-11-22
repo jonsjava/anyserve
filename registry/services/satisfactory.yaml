@@ -1,0 +1,59 @@
+schema: 1
+id: satisfactory
+name: Satisfactory
+description: Coffee Stain's factory-building game, as an official dedicated server.
+homepage: https://www.satisfactorygame.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 1690800
+
+steps:
+  - type: chmod_exec
+    path: FactoryServer.sh
+    os: [linux]
+
+ports:
+  - name: game
+    port: 7777
+    protocol: both
+    public: true
+    description: Players connect here (game traffic and the server API).
+  - name: reliable
+    port: 8888
+    protocol: tcp
+    public: true
+    description: Reliable messaging between players and the server.
+
+run:
+  linux:
+    command: FactoryServer.sh
+    args: &args
+      - "-Port={{.Ports.game}}"
+      - "-ReliablePort={{.Ports.reliable}}"
+      - -log
+      - -unattended
+  windows:
+    command: FactoryServer.exe
+    args: *args
+
+stop:
+  timeout_seconds: 120
+
+backup:
+  paths: [.config/Epic/FactoryGame/Saved]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: upstream
+  name: sfserver
+
+notes:
+  - "Claim the server in the game: Server Manager, Add Server, then this machine's address and the game port. The first player sets the admin password and creates or uploads a save."
+  - Needs about 8 GB of memory once a factory grows.
+  - Saves live in .config/Epic/FactoryGame/Saved inside the server folder, and backups include them.

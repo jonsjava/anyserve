@@ -1,0 +1,53 @@
+schema: 1
+id: audiobookshelf
+name: Audiobookshelf
+description: An audiobook and podcast server with progress sync, web player and mobile apps.
+homepage: https://www.audiobookshelf.org
+version: "2.38.0-1"
+kind: stack
+
+settings:
+  - key: audiobooks_folder
+    prompt: Your audiobooks folder on this machine (e.g. ~/Audiobooks)
+    description: Shared read-only. Add it as a library at /audiobooks in the web UI.
+    type: folder
+    default: ~/Audiobooks
+  - key: podcasts_folder
+    prompt: Folder for downloaded podcasts (leave empty for none)
+    description: Shared read-write, because Audiobookshelf downloads episodes into it. Add it as a library at /podcasts.
+    type: folder
+    optional: true
+
+ports:
+  - name: http
+    port: 13378
+    protocol: tcp
+    public: false
+    description: The web app, API and mobile app connections.
+
+stack:
+  services:
+    - name: audiobookshelf
+      image: ghcr.io/advplyr/audiobookshelf:2.38.0@sha256:60064c23f32fd9099fd39e82c5132c51701d1221135bbca04cd099b589e1edc3
+      env:
+        PORT: "13378"
+      volumes:
+        - { path: config, target: /config }
+        - { path: metadata, target: /metadata }
+        - { setting: audiobooks_folder, target: /audiobooks, read_only: true }
+        - { setting: podcasts_folder, target: /podcasts }
+      ports:
+        - { port: http, target: 13378 }
+
+backup:
+  paths: [config, metadata]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Create the root account on your first visit, then add a library pointing at /audiobooks (and /podcasts).
+  - Backups cover the database, covers and progress, not your audiobook files.
+  - Phones need `--expose http` on your LAN, or an HTTPS proxy.

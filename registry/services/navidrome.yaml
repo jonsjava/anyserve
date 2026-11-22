@@ -1,0 +1,56 @@
+schema: 1
+id: navidrome
+name: Navidrome
+description: A music server and streamer for your own collection, compatible with Subsonic apps.
+homepage: https://www.navidrome.org
+version: "0.64.2-1"
+kind: stack
+
+settings:
+  - key: music_folder
+    prompt: Your music folder on this machine (e.g. ~/Music)
+    description: Shared read-only. Navidrome never changes your files.
+    type: folder
+    default: ~/Music
+  - key: scan_schedule
+    prompt: How often to look for new music
+    type: choice
+    default: 1h
+    choices:
+      - { value: 15m, label: Every 15 minutes }
+      - { value: 1h, label: Every hour }
+      - { value: 24h, label: Once a day }
+      - { value: "0", label: Never (scan from the UI) }
+
+ports:
+  - name: http
+    port: 4533
+    protocol: tcp
+    public: false
+    description: The web player and the Subsonic API for apps.
+
+stack:
+  services:
+    - name: navidrome
+      image: deluan/navidrome:0.64.2@sha256:38dc2727bfcfd5ede290f8ada114fc90368146f265ae4701ddddbcbe2a44ee52
+      env:
+        ND_SCANSCHEDULE: "{{.Settings.scan_schedule}}"
+        ND_LOGLEVEL: info
+      volumes:
+        - { path: data, target: /data }
+        - { setting: music_folder, target: /music, read_only: true }
+      ports:
+        - { port: http, target: 4533 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - The first account you create becomes the admin.
+  - Backups cover Navidrome's database (playlists, ratings, play counts), not your music folder.
+  - Phones and other computers need `--expose http` on your LAN, or an HTTPS proxy.

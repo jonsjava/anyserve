@@ -1,0 +1,62 @@
+schema: 1
+id: mumble
+name: Mumble
+description: A low-latency, high-quality voice chat server, popular with gaming groups.
+homepage: https://www.mumble.info
+version: "1.5.939-1"
+kind: stack
+
+settings:
+  - key: superuser_password
+    prompt: SuperUser password, for server admin (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: server_password
+    prompt: Password to join (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: welcome_text
+    prompt: Welcome message
+    type: string
+    default: Welcome to an Anyserve Mumble server!
+  - key: max_users
+    prompt: Maximum users
+    type: int
+    default: 50
+    min: 1
+    max: 1000
+
+ports:
+  - name: voice
+    port: 64738
+    protocol: both
+    public: true
+    description: Mumble clients connect here.
+
+stack:
+  services:
+    - name: mumble
+      image: mumblevoip/mumble-server:v1.5.939@sha256:2373aaf071dfcea95b0d45bc2ddf6c10318674a313a7e4816e826e9ba4bca942
+      env:
+        MUMBLE_SUPERUSER_PASSWORD: "{{.Settings.superuser_password}}"
+        MUMBLE_CONFIG_SERVERPASSWORD: "{{.Settings.server_password}}"
+        MUMBLE_CONFIG_WELCOMETEXT: "{{.Settings.welcome_text}}"
+        MUMBLE_CONFIG_USERS: "{{.Settings.max_users}}"
+      volumes:
+        - { path: data, target: /data }
+      ports:
+        - { port: voice, target: 64738 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: upstream
+  name: mumbleserver
+  notes: LinuxGSM's mumbleserver installs the native server rather than a container.
+
+notes:
+  - Log in as SuperUser with the generated password (`anyserve config <name> --show-secrets`) to set up channels and admins.

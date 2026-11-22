@@ -1,0 +1,122 @@
+schema: 1
+id: unturned
+name: Unturned
+description: Smartly Dressed Games' free zombie survival game, as an official dedicated server.
+homepage: https://smartlydressedgames.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 1110390
+
+steps:
+  - type: steam_sdk
+  - type: chmod_exec
+    path: Unturned_Headless.x86_64
+    os: [linux]
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Unturned
+  - key: map
+    prompt: Map
+    type: string
+    default: PEI
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 24
+    min: 1
+    max: 200
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: mode
+    prompt: Difficulty
+    type: choice
+    default: Normal
+    choices:
+      - { value: Easy, label: Easy }
+      - { value: Normal, label: Normal }
+      - { value: Hard, label: Hard }
+  - key: pvp
+    prompt: Allow players to fight each other?
+    type: bool
+    default: true
+  - key: owner
+    prompt: Your SteamID64, to make you the server's admin (leave empty for none)
+    description: The 17-digit number in your Steam profile address, e.g. 76561198000000000. The owner can run admin commands from in-game chat.
+    type: string
+    optional: true
+  - key: gslt
+    prompt: Steam game server login token, for an internet server (leave empty for LAN only)
+    description: Create one at https://steamcommunity.com/dev/managegameservers for app 304930.
+    type: string
+    secret: true
+    optional: true
+
+ports:
+  - name: game
+    port: 27015
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 27016
+    protocol: udp
+    public: true
+    description: Steam queries. Unturned always uses the game port plus one.
+
+files:
+  - path: Servers/anyserve/Server/Commands.dat
+    overwrite: true
+    template: |
+      Name {{.Settings.server_name}}
+      Map {{.Settings.map}}
+      Port {{.Ports.game}}
+      MaxPlayers {{.Settings.max_players}}
+      Mode {{.Settings.mode}}
+      {{if .Settings.pvp}}PvP{{else}}PvE{{end}}
+      {{if .Settings.password}}Password {{.Settings.password}}
+      {{end}}{{if .Settings.owner}}Owner {{.Settings.owner}}
+      {{end}}{{if .Settings.gslt}}GSLT {{.Settings.gslt}}
+      {{end}}
+
+run:
+  linux:
+    command: Unturned_Headless.x86_64
+    args: &args
+      - -batchmode
+      - -nographics
+      - "{{if .Settings.gslt}}+InternetServer/anyserve{{else}}+LanServer/anyserve{{end}}"
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/Unturned_Headless_Data/Plugins/x86_64:{{.Dir}}/linux64"
+  windows:
+    command: Unturned.exe
+    args: [-batchmode, -nographics, "{{if .Settings.gslt}}+InternetServer/anyserve{{else}}+LanServer/anyserve{{end}}"]
+
+# Unturned only reads console commands from a real terminal, so it has no
+# console here. An interrupt saves the world and exits within seconds.
+stop:
+  timeout_seconds: 60
+
+backup:
+  paths: [Servers/anyserve]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1]
+
+linuxgsm:
+  status: upstream
+  name: untserver
+
+notes:
+  - Without a login token the server is LAN only. Internet servers need a token (gslt).
+  - The server's files are in Servers/anyserve inside the server folder. Anyserve rewrites Server/Commands.dat from its settings.
+  - Unturned only accepts console commands typed in a real terminal, so "anyserve console", say and save don't work for it. Stopping the server saves the world. Admin commands work from in-game chat for the owner (the owner setting).

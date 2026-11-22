@@ -1,0 +1,130 @@
+schema: 1
+id: factorio
+name: Factorio
+description: Wube Software's official headless Factorio server for multiplayer factory building.
+homepage: https://factorio.com
+version: "2.1.24-1"
+platforms: [linux]
+
+install:
+  archive:
+    url: https://factorio.com/get-download/2.1.24/headless/linux64
+    format: tar.xz
+    sha256: c49b66cff90aceff87b30f2973af0df7f51712cb2ee3153e0169d9bed46a964f
+    subdir:
+      linux: factorio
+
+steps:
+  - type: chmod_exec
+    path: bin/x64/factorio
+  - type: copy_file_if_missing
+    from: data/server-settings.example.json
+    to: server-settings.json
+  - type: mkdir
+    path: saves
+  # Factorio can only start from a save, so make the first one.
+  - type: exec
+    command: bin/x64/factorio
+    args: [--create, saves/world.zip]
+    creates: saves/world.zip
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Factorio
+  - key: description
+    prompt: Server description
+    type: string
+    default: Hosted with Anyserve
+  - key: max_players
+    prompt: Maximum players (0 for no limit)
+    type: int
+    default: 0
+    min: 0
+    max: 65535
+  - key: password
+    prompt: Game password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: require_verification
+    prompt: Only allow players with a factorio.com account?
+    type: bool
+    default: true
+  - key: autosave_minutes
+    prompt: Minutes between autosaves
+    type: int
+    default: 10
+    min: 1
+    max: 120
+  - key: rcon_password
+    prompt: RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 34197
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: rcon
+    port: 27015
+    protocol: tcp
+    public: false
+    description: Remote console for `anyserve console`.
+
+files:
+  - path: server-settings.json
+    format: json
+    set:
+      name: "{{.Settings.server_name}}"
+      description: "{{.Settings.description}}"
+      max_players: "{{.Settings.max_players}}"
+      game_password: "{{.Settings.password}}"
+      require_user_verification: "{{truefalse .Settings.require_verification}}"
+      autosave_interval: "{{.Settings.autosave_minutes}}"
+      visibility.public: "false"
+      visibility.lan: "true"
+
+run:
+  linux:
+    command: bin/x64/factorio
+    args:
+      - --start-server-load-latest
+      - --server-settings
+      - server-settings.json
+      - --port
+      - "{{.Ports.game}}"
+      - --rcon-port
+      - "{{.Ports.rcon}}"
+      - --rcon-password
+      - "{{.Settings.rcon_password}}"
+
+stop:
+  timeout_seconds: 60
+
+console:
+  say: "{{.Message}}"
+  save: /server-save
+  rcon:
+    protocol: source
+    port: rcon
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [saves, server-settings.json, mods, server-adminlist.json, server-banlist.json, server-whitelist.json]
+
+container:
+  image: debian:bookworm-slim
+
+linuxgsm:
+  status: upstream
+  name: fctrserver
+
+notes:
+  - The first install creates a new world in saves/world.zip. Each start loads the newest save, including autosaves.
+  - Listing the server publicly needs a factorio.com user name and token in server-settings.json (visibility.public). Anyserve keeps it LAN-only by default.
+  - Make yourself an admin from the console with `/promote <name>`.

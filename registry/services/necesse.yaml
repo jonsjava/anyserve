@@ -1,0 +1,95 @@
+schema: 1
+id: necesse
+name: Necesse
+description: Fair Games' top-down sandbox adventure about building settlements, as a dedicated server.
+homepage: https://necessegame.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 1169370
+
+steps:
+  - type: chmod_exec
+    path: StartServer-nogui.sh
+    os: [linux]
+  - type: chmod_exec
+    path: jre/bin/java
+    os: [linux]
+
+settings:
+  - key: world_name
+    prompt: World name (created if it doesn't exist)
+    type: string
+    default: Anyserve
+  - key: slots
+    prompt: Player slots
+    type: int
+    default: 10
+    min: 1
+    max: 250
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: motd
+    prompt: Message of the day
+    type: string
+    optional: true
+  - key: pause_when_empty
+    prompt: Pause the world when nobody is online?
+    type: bool
+    default: true
+
+ports:
+  - name: game
+    port: 14159
+    protocol: udp
+    public: true
+    description: Players connect here.
+
+run:
+  linux:
+    command: StartServer-nogui.sh
+    args: &args
+      - -localdir
+      - -world
+      - "{{.Settings.world_name}}"
+      - -port
+      - "{{.Ports.game}}"
+      - -slots
+      - "{{.Settings.slots}}"
+      - -pausewhenempty
+      - "{{onezero .Settings.pause_when_empty}}"
+      - "{{if .Settings.password}}-password{{end}}"
+      - "{{.Settings.password}}"
+      - "{{if .Settings.motd}}-motd{{end}}"
+      - "{{.Settings.motd}}"
+  windows:
+    command: StartServer-nogui.bat
+    args: *args
+
+stop:
+  command: stop
+  timeout_seconds: 60
+
+console:
+  say: "say {{.Message}}"
+  save: save
+
+backup:
+  paths: [saves, cfg]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates]
+
+linuxgsm:
+  status: upstream
+  name: necserver
+
+notes:
+  - Necesse brings its own Java runtime.
+  - Saves and settings stay in the server folder (saves and cfg).

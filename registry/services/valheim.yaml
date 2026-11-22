@@ -1,0 +1,114 @@
+schema: 1
+id: valheim
+name: Valheim
+description: Iron Gate's Viking survival game, as an official dedicated server.
+homepage: https://www.valheimgame.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 896660
+
+steps:
+  - type: chmod_exec
+    path: valheim_server.x86_64
+    os: [linux]
+  - type: mkdir
+    path: saves
+
+settings:
+  - key: server_name
+    prompt: Server name shown in the server list
+    type: string
+    default: Anyserve Valheim
+  - key: world_name
+    prompt: World name (a new world is created if it doesn't exist)
+    type: string
+    default: Dedicated
+  - key: password
+    prompt: Server password, at least 5 characters and not part of the server name (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: public
+    prompt: List the server in the public server browser?
+    type: bool
+    default: true
+  - key: crossplay
+    prompt: Allow Xbox and Game Pass players (crossplay)?
+    description: Players then join with a join code instead of the address.
+    type: bool
+    default: false
+  - key: preset
+    prompt: World difficulty preset
+    type: choice
+    default: normal
+    choices:
+      - { value: normal, label: Normal }
+      - { value: casual, label: Casual }
+      - { value: easy, label: Easy }
+      - { value: hard, label: Hard }
+      - { value: hardcore, label: Hardcore }
+      - { value: immersive, label: Immersive }
+      - { value: hammer, label: Hammer (building) }
+
+ports:
+  - name: game
+    port: 2456
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: query
+    port: 2457
+    protocol: udp
+    public: true
+    description: Steam queries. Valheim always uses the game port plus one, so change both together.
+
+run:
+  linux:
+    command: valheim_server.x86_64
+    args: &args
+      - -nographics
+      - -batchmode
+      - -name
+      - "{{.Settings.server_name}}"
+      - -port
+      - "{{.Ports.game}}"
+      - -world
+      - "{{.Settings.world_name}}"
+      - -password
+      - "{{.Settings.password}}"
+      - -public
+      - "{{onezero .Settings.public}}"
+      - -preset
+      - "{{.Settings.preset}}"
+      - -savedir
+      - "{{.Dir}}/saves"
+      - "{{if .Settings.crossplay}}-crossplay{{end}}"
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}/linux64"
+      SteamAppId: "892970"
+  windows:
+    command: valheim_server.exe
+    args: *args
+    env:
+      SteamAppId: "892970"
+
+stop:
+  timeout_seconds: 90
+
+backup:
+  paths: [saves]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, libatomic1, libpulse0]
+
+linuxgsm:
+  status: upstream
+  name: vhserver
+
+notes:
+  - The world saves when the server stops and every 30 minutes while it runs.
+  - Admins, bans and permitted players are lists of Steam IDs in saves/adminlist.txt, bannedlist.txt and permittedlist.txt.

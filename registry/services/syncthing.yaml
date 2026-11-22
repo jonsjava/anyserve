@@ -1,0 +1,53 @@
+schema: 1
+id: syncthing
+name: Syncthing
+description: Continuous peer-to-peer file sync between your computers and phones, with no cloud in between.
+homepage: https://syncthing.net
+version: "2.1.7-1"
+kind: stack
+
+settings:
+  - key: sync_folder
+    prompt: Folder to sync on this machine (e.g. ~/Sync)
+    description: Shared read-write at /sync. Add folders under /sync in the web UI.
+    type: folder
+    default: ~/Sync
+
+ports:
+  - name: gui
+    port: 8384
+    protocol: tcp
+    public: false
+    description: The web UI. Set a GUI password before exposing it.
+  - name: sync
+    port: 22000
+    protocol: both
+    public: true
+    description: Other devices connect here (TCP and QUIC).
+
+stack:
+  services:
+    - name: syncthing
+      image: syncthing/syncthing:2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546
+      env:
+        STGUIADDRESS: 0.0.0.0:8384
+      volumes:
+        - { path: data, target: /var/syncthing }
+        - { setting: sync_folder, target: /sync }
+      ports:
+        - { port: gui, target: 8384 }
+        - { port: sync, target: 22000 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Open the web UI and set a GUI user and password first (Actions, Settings, GUI).
+  - Share folders under /sync, which is the folder you chose on this machine.
+  - Devices find each other through Syncthing's global discovery and relays. Local discovery on the LAN isn't available inside a container, so add devices by ID.
+  - Backups cover Syncthing's keys and settings, not the synced files.

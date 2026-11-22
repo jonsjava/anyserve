@@ -1,0 +1,124 @@
+schema: 1
+id: minecraft-bedrock
+name: Minecraft (Bedrock Edition)
+description: Mojang's official Bedrock Dedicated Server, for players on phones, consoles and Windows.
+homepage: https://www.minecraft.net/en-us/download/server/bedrock
+version: "1.26.66.1-1"
+platforms: [linux]
+
+install:
+  archive:
+    url: https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.26.66.1.zip
+    sha256: e87bcd95bec5cc34b065ca956825c6abb7a0c356ae79408302845069cecaa6bf
+    keep: [server.properties, allowlist.json, permissions.json]
+
+steps:
+  - type: chmod_exec
+    path: bedrock_server
+
+settings:
+  - key: accept_eula
+    prompt: Do you agree to the Minecraft EULA (https://aka.ms/MinecraftEULA) and Privacy Policy (https://go.microsoft.com/fwlink/?LinkId=521839)?
+    description: Mojang requires this to download and run the server.
+    type: bool
+    must_accept: true
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Bedrock
+  - key: gamemode
+    prompt: Game mode
+    type: choice
+    default: survival
+    choices:
+      - { value: survival, label: Survival }
+      - { value: creative, label: Creative }
+      - { value: adventure, label: Adventure }
+  - key: difficulty
+    prompt: Difficulty
+    type: choice
+    default: easy
+    choices:
+      - { value: peaceful, label: Peaceful }
+      - { value: easy, label: Easy }
+      - { value: normal, label: Normal }
+      - { value: hard, label: Hard }
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 10
+    min: 1
+    max: 100
+  - key: allow_list
+    prompt: Only let players on the allow list join?
+    description: Add players from the console with `allowlist add <name>`.
+    type: bool
+    default: false
+  - key: allow_cheats
+    prompt: Allow cheats and commands for operators?
+    type: bool
+    default: false
+  - key: level_name
+    prompt: World name
+    type: string
+    default: Bedrock level
+  - key: seed
+    prompt: World seed (leave empty for random; used when the world is created)
+    type: string
+    optional: true
+
+ports:
+  - name: game
+    port: 19132
+    protocol: udp
+    public: true
+    description: Players connect here (IPv4).
+  - name: game_v6
+    port: 19133
+    protocol: udp
+    public: false
+    description: The IPv6 game port. Forward it only if you use IPv6.
+
+files:
+  - path: server.properties
+    format: lines
+    set:
+      "server-name=": "server-name={{.Settings.server_name}}"
+      "gamemode=": "gamemode={{.Settings.gamemode}}"
+      "difficulty=": "difficulty={{.Settings.difficulty}}"
+      "max-players=": "max-players={{.Settings.max_players}}"
+      "allow-list=": "allow-list={{truefalse .Settings.allow_list}}"
+      "allow-cheats=": "allow-cheats={{truefalse .Settings.allow_cheats}}"
+      "level-name=": "level-name={{.Settings.level_name}}"
+      "level-seed=": "level-seed={{.Settings.seed}}"
+      "server-port=": "server-port={{.Ports.game}}"
+      "server-portv6=": "server-portv6={{.Ports.game_v6}}"
+
+run:
+  linux:
+    command: bedrock_server
+    env:
+      LD_LIBRARY_PATH: "{{.Dir}}"
+
+stop:
+  command: stop
+  timeout_seconds: 60
+
+console:
+  say: "say {{.Message}}"
+
+backup:
+  paths: [worlds, server.properties, allowlist.json, permissions.json]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, libcurl4]
+
+linuxgsm:
+  status: upstream
+  name: mcbserver
+
+notes:
+  - Installing asks you to agree to Mojang's EULA and Microsoft's privacy policy (or pass `--set accept_eula=true`).
+  - The allow list, permissions and your server.properties edits are kept when Anyserve updates the server.
+  - Mojang ships the Windows server as a separate download, which Anyserve doesn't install yet.

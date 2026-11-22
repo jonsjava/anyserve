@@ -1,0 +1,56 @@
+schema: 1
+id: grafana
+name: Grafana
+description: Dashboards and alerts for metrics and logs from Prometheus, InfluxDB, Loki, databases and more.
+homepage: https://grafana.com/oss/grafana/
+version: "13.3.1-1"
+kind: stack
+
+settings:
+  - key: admin_user
+    prompt: Admin user name
+    type: string
+    default: admin
+  - key: admin_password
+    prompt: Admin password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: root_url
+    prompt: Address people will use (e.g. https://grafana.example.com)
+    type: string
+    default: http://localhost:3002
+
+ports:
+  - name: http
+    port: 3002
+    protocol: tcp
+    public: false
+    description: The web UI and API.
+
+stack:
+  services:
+    - name: grafana
+      image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+      env:
+        GF_SECURITY_ADMIN_USER: "{{.Settings.admin_user}}"
+        GF_SECURITY_ADMIN_PASSWORD: "{{.Settings.admin_password}}"
+        GF_SERVER_ROOT_URL: "{{.Settings.root_url}}"
+        GF_LOG_MODE: console
+        GF_ANALYTICS_REPORTING_ENABLED: "false"
+      volumes:
+        - { path: data, target: /var/lib/grafana }
+      ports:
+        - { port: http, target: 3000 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - The admin password applies on the first start. Change it later in Grafana.
+  - To read data from a service on this machine, use the machine's LAN address rather than localhost.

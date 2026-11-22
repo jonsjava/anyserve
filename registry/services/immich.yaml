@@ -1,0 +1,95 @@
+schema: 1
+id: immich
+name: Immich
+description: A self-hosted photo and video library with phone backup, face recognition and smart search.
+homepage: https://immich.app
+version: "3.4.2-1"
+kind: stack
+
+settings:
+  - key: external_library
+    prompt: Existing photo folder to show in Immich, read-only (leave empty for none)
+    description: Add it in Immich as an external library at /external. New uploads from phones go to the instance's own library folder.
+    type: folder
+    optional: true
+  - key: postgres_password
+    prompt: Database password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 2283
+    protocol: tcp
+    public: false
+    description: The web app, API and phone app connections.
+
+stack:
+  services:
+    - name: database
+      image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+      env:
+        POSTGRES_USER: immich
+        POSTGRES_PASSWORD: "{{.Settings.postgres_password}}"
+        POSTGRES_DB: immich
+        POSTGRES_INITDB_ARGS: --data-checksums
+      volumes:
+        - { path: data/postgres, target: /var/lib/postgresql/data }
+      health:
+        command: [pg_isready, -U, immich, -d, immich]
+        interval_seconds: 5
+        retries: 30
+      shm_mb: 128
+    - name: redis
+      image: valkey/valkey:9@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+      volumes:
+        - { path: data/redis, target: /data }
+      health:
+        command: [valkey-cli, ping]
+        interval_seconds: 5
+        retries: 20
+    - name: machine-learning
+      image: ghcr.io/immich-app/immich-machine-learning:v3.4.2@sha256:739405742a79bd7447227c553bb62ed5491aa36acf00bc667af7f9c93b6fae91
+      env:
+        MACHINE_LEARNING_MODEL_REVISION: v2
+      volumes:
+        - { path: cache/models, target: /cache }
+    - name: immich-server
+      image: ghcr.io/immich-app/immich-server:v3.4.2@sha256:fc880c1bf665b4aab1e74c15e56ab871225989cd546536e6b77e771869af06bd
+      env:
+        DB_HOSTNAME: database
+        DB_USERNAME: immich
+        DB_PASSWORD: "{{.Settings.postgres_password}}"
+        DB_DATABASE_NAME: immich
+        REDIS_HOSTNAME: redis
+        IMMICH_MACHINE_LEARNING_URL: http://machine-learning:3003
+      volumes:
+        - { path: library, target: /data }
+        - { setting: external_library, target: /external, read_only: true }
+      ports:
+        - { port: http, target: 2283 }
+      depends_on: [database, redis]
+
+stop:
+  timeout_seconds: 60
+
+console:
+  exec:
+    service: immich-server
+    command: [sh]
+    description: a shell in the Immich server container, for `immich-admin` (such as immich-admin reset-admin-password)
+
+backup:
+  paths: [data/postgres]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Create the admin account on your first visit.
+  - Anyserve backups cover the database only, because photo libraries are often huge. Back up the library folder inside the instance with your usual tools as well.
+  - Phones need `--expose http` on your LAN, or an HTTPS proxy for use away from home.
+  - Machine learning (faces, smart search) downloads its models on first use and needs a few GB of memory.

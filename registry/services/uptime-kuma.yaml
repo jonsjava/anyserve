@@ -1,0 +1,38 @@
+schema: 1
+id: uptime-kuma
+name: Uptime Kuma
+description: A self-hosted monitoring tool that checks websites and services and alerts you when they go down.
+homepage: https://uptime.kuma.pet
+version: "2.5.12-1"
+kind: stack
+
+ports:
+  - name: http
+    port: 3001
+    protocol: tcp
+    public: false
+    description: The dashboard and status pages.
+
+stack:
+  services:
+    - name: uptime-kuma
+      image: louislam/uptime-kuma:2.5.12@sha256:8e4b6bef96417ec98a35dc103c99cc64fc229a01e584e56d95d9004d2003c02a
+      env:
+        UPTIME_KUMA_PORT: "3001"
+      volumes:
+        - { path: data, target: /app/data }
+      ports:
+        - { port: http, target: 3001 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Open the dashboard and create the admin account on first visit. Pick SQLite when asked for a database.
+  - To reach it from other computers on your network, add `--expose http`.
+  - Monitors run from inside the container, so to check a service on this machine use its LAN address rather than localhost.

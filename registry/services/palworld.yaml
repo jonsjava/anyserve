@@ -1,0 +1,113 @@
+schema: 1
+id: palworld
+name: Palworld
+description: Pocketpair's creature-collecting survival game, as an official dedicated server.
+homepage: https://www.pocketpair.jp/palworld
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 2394010
+
+steps:
+  - type: steam_sdk
+  - type: chmod_exec
+    path: PalServer.sh
+    os: [linux]
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Palworld
+  - key: description
+    prompt: Server description
+    type: string
+    default: Hosted with Anyserve
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: admin_password
+    prompt: Admin and RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 32
+    min: 1
+    max: 32
+  - key: community
+    prompt: List the server in the community server browser?
+    type: bool
+    default: false
+
+ports:
+  - name: game
+    port: 8211
+    protocol: udp
+    public: true
+    description: Players connect here.
+  - name: rcon
+    port: 25575
+    protocol: tcp
+    public: false
+    description: Remote console for `anyserve console`.
+
+files:
+  - path: Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
+    os: [linux]
+    overwrite: true
+    template: &palsettings |
+      [/Script/Pal.PalGameWorldSettings]
+      OptionSettings=(ServerName={{json .Settings.server_name}},ServerDescription={{json .Settings.description}},AdminPassword={{json .Settings.admin_password}},ServerPassword={{json .Settings.password}},PublicPort={{.Ports.game}},ServerPlayerMaxNum={{.Settings.max_players}},RCONEnabled=True,RCONPort={{.Ports.rcon}},RESTAPIEnabled=False)
+  - path: Pal/Saved/Config/WindowsServer/PalWorldSettings.ini
+    os: [windows]
+    overwrite: true
+    template: *palsettings
+
+run:
+  linux:
+    command: PalServer.sh
+    args: &args
+      - "-port={{.Ports.game}}"
+      - "-players={{.Settings.max_players}}"
+      - -useperfthreads
+      - -NoAsyncLoadingThread
+      - -UseMultithreadForDS
+      - "{{if .Settings.community}}-publiclobby{{end}}"
+  windows:
+    command: PalServer.exe
+    args: *args
+
+stop:
+  command: Shutdown 1
+  rcon: true
+  timeout_seconds: 90
+
+console:
+  say: "Broadcast {{.Message}}"
+  save: Save
+  rcon:
+    protocol: source
+    port: rcon
+    password: "{{.Settings.admin_password}}"
+
+backup:
+  paths: [Pal/Saved]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1]
+
+linuxgsm:
+  status: upstream
+  name: pwserver
+
+notes:
+  - Anyserve writes PalWorldSettings.ini from its settings, so edits to that file are replaced. Other world options keep Palworld's defaults.
+  - Broadcast messages can only be one word in Palworld's RCON; use underscores between words.
