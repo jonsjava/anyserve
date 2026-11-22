@@ -39,6 +39,13 @@ This is the most useful contribution.
 5. In the pull request, say what you tested, on which OS, and what you
    couldn't test. Put anything surprising in the definition's `notes`.
 
+When you open the pull request, CI checks formatting, validates every
+definition, runs the tests with the race detector and builds for each
+platform. Its summary lists the download URLs, checksums and image digests
+your change adds, for review. Once the maintainer approves and merges it, the
+new definitions are signed and published to the main registry automatically,
+and `anyserve refresh` picks them up within a few minutes.
+
 If a game needs something definitions can't express, don't work around it
 with a script. Open an issue or add a general feature in Go: a step type,
 a `set` file format, a launcher. Definitions stay declarative so the
@@ -78,11 +85,10 @@ definition are often worth sending upstream.
 - Keep the security rules intact: no shell from definitions, paths stay
   inside the instance, downloads are HTTPS and pinned, containers stay
   locked down. Changes to these need a clear reason.
-- The registry snapshot in `internal/registry/snapshot` and the published
-  [anyserve-registry](https://github.com/jonsjava/anyserve-registry) are
-  signed by the maintainer. Don't edit them by hand; after merging
-  definition changes the maintainer runs `make publish-registry`, which
-  re-signs the snapshot and publishes it.
+- Don't edit the registry snapshot in `internal/registry/snapshot` or the
+  published [anyserve-registry](https://github.com/jonsjava/anyserve-registry)
+  by hand. The Publish registry workflow signs both when definition changes
+  reach `main`.
 
 ## Reporting bugs
 

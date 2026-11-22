@@ -42,6 +42,16 @@ security reports come first.
   `anyserve rcon` reads passwords from the environment or a prompt, not from
   the command line.
 
+## The signing key
+
+The main registry's signing key is a secret in this repository's `registry`
+GitHub environment, which only the `main` branch can use. Pull request
+checks run without secrets, so a pull request can't sign anything. The
+Publish registry workflow signs new definitions after they're merged, and
+checks each signature against the public key pinned in the code before
+publishing it. Because that workflow runs the code on `main`, changes to the
+build tools and workflows get the same review as definitions.
+
 ## What it doesn't protect against
 
 - **The servers themselves.** Game servers and container images run their

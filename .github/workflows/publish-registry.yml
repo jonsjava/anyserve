@@ -1,0 +1,102 @@
+# Publishes the main registry when service definitions land on main, which
+# happens when the maintainer merges an approved pull request.
+#
+# 1. Validates and tests the definitions.
+# 2. Signs a new index with the registry key, checking it against the key
+#    pinned in Anyserve.
+# 3. Pushes index.json and index.json.sig to jonsjava/anyserve-registry,
+#    which GitHub Pages serves at jonsjava.github.io/anyserve-registry.
+# 4. Commits the same signed index back here as the snapshot built into the
+#    binary.
+#
+# The secrets live in the "registry" environment, which only main can use,
+# so pull requests (and forks) never see them.
+name: Publish registry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "registry/services/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write # to commit the refreshed snapshot back to main
+
+concurrency:
+  group: publish-registry
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sign and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: registry
+      url: https://jonsjava.github.io/anyserve-registry/index.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Validate and test
+        run: |
+          make check
+          go test -short ./internal/spec ./internal/registry ./tools/...
+
+      - name: Sign the index
+        env:
+          ANYSERVE_REGISTRY_KEY: ${{ secrets.ANYSERVE_REGISTRY_KEY }}
+        run: |
+          if [ -z "$ANYSERVE_REGISTRY_KEY" ]; then
+            echo "::error::The registry environment has no ANYSERVE_REGISTRY_KEY secret."
+            exit 1
+          fi
+          go run ./tools/regbuild -src registry/services -out internal/registry/snapshot
+          # Fails unless the signature matches the public key pinned in the code.
+          go run ./tools/regbuild -verify internal/registry/snapshot/index.json
+
+      - name: Check out the registry site
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jonsjava/anyserve-registry
+          path: site
+          ssh-key: ${{ secrets.REGISTRY_DEPLOY_KEY }}
+
+      - name: Publish to GitHub Pages
+        run: |
+          cp internal/registry/snapshot/index.json internal/registry/snapshot/index.json.sig site/
+          go run ./tools/regbuild -verify site/index.json | tee -a "$GITHUB_STEP_SUMMARY"
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898599+github-actions[bot]@users.noreply.github.com"
+          git add index.json index.json.sig
+          git commit -q -m "Publish registry from jonsjava/anyserve@${GITHUB_SHA::7}"
+          git push -q
+
+      - name: Update the built-in snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898599+github-actions[bot]@users.noreply.github.com"
+          git add internal/registry/snapshot
+          git commit -q -m "Update the built-in registry snapshot
+
+          Signed and published by the Publish registry workflow for ${GITHUB_SHA::7}."
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
+
+      - name: Wait for GitHub Pages
+        run: |
+          want=$(sha256sum internal/registry/snapshot/index.json | cut -d' ' -f1)
+          for i in $(seq 1 30); do
+            got=$(curl -fsS https://jonsjava.github.io/anyserve-registry/index.json | sha256sum | cut -d' ' -f1 || true)
+            if [ "$got" = "$want" ]; then
+              echo "GitHub Pages is serving the new index."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::GitHub Pages hasn't served the new index after 5 minutes. Check the anyserve-registry Pages deployment."

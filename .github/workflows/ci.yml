@@ -1,0 +1,79 @@
+# Checks every pull request (including ones that add or change service
+# definitions) and every push to main. Runs with read-only access and no
+# secrets, so it's safe for pull requests from forks.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l cmd internal tools)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Validate service definitions
+        run: make check
+
+      - name: Vet and test (race detector)
+        run: make test-full
+
+      - name: Build for every platform
+        run: |
+          for p in linux/amd64 linux/arm64 windows/amd64 darwin/arm64; do
+            echo "building $p"
+            CGO_ENABLED=0 GOOS=${p%/*} GOARCH=${p#*/} go build -o /dev/null ./cmd/anyserve
+          done
+
+      - name: List changed definitions
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          changed=$(git diff --name-only "$BASE" HEAD -- registry/services)
+          if [ -z "$changed" ]; then
+            echo "No service definitions changed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### Service definitions in this pull request"
+            echo
+            echo "Merging publishes these to the main registry. Check every download URL, checksum and image digest."
+            echo
+            for f in $changed; do
+              if [ -f "$f" ]; then echo "- \`$f\`"; else echo "- \`$f\` (removed)"; fi
+            done
+            echo
+            echo "#### Sources"
+            echo
+            echo '```'
+            grep -hE '^\s*(url|sha256|image|app_id|archive):|steamcmd:' $(for f in $changed; do [ -f "$f" ] && echo "$f"; done) /dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

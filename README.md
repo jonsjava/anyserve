@@ -158,15 +158,26 @@ make test        # vet and quick tests
 make test-full   # all tests with the race detector
 make check       # validate every definition
 make registry    # rebuild the signed snapshot (needs the signing key)
-make publish-registry  # sign and publish the main registry (maintainer only)
+make publish-registry  # sign and publish by hand (the workflow normally does this)
 make release     # cross-compile for Linux, Windows and macOS into dist/
 ```
 
-The registry signing key isn't in the repo, and it isn't in CI either: the
-index is signed on the maintainer's machine. `make registry` reads it from
-`~/.config/anyserve-dev/registry-signing.key` (override with `KEY=...`); its
-public key is pinned in `internal/registry/defaults.go`. Contributors don't
-need it: `make check` validates definitions without signing.
+Two GitHub Actions workflows run the project:
+
+- **CI** (`.github/workflows/ci.yml`) checks every pull request: formatting,
+  definitions, tests with the race detector, and builds for each platform.
+  It has no secrets, so pull requests from forks are safe to run.
+- **Publish registry** (`.github/workflows/publish-registry.yml`) runs when
+  definition changes reach `main`. It signs a new index, pushes it to
+  [anyserve-registry](https://github.com/jonsjava/anyserve-registry) for
+  GitHub Pages, and commits the same index back as the built-in snapshot.
+
+The signing key isn't in the repo. It's a secret in the `registry`
+environment, which only `main` can use, and the public key is pinned in
+`internal/registry/defaults.go`. To sign locally instead, `make registry`
+reads it from `~/.config/anyserve-dev/registry-signing.key` (override with
+`KEY=...`). Contributors don't need it: `make check` validates definitions
+without signing.
 
 ## Credits
 
