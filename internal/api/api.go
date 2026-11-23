@@ -80,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("DELETE /v1/instances/{name}/files", s.instance(s.filesDelete))
 	m.HandleFunc("POST /v1/instances/{name}/files/mkdir", s.instance(s.filesMkdir))
 	m.HandleFunc("POST /v1/instances/{name}/files/rename", s.instance(s.filesRename))
+	m.HandleFunc("POST /v1/instances/{name}/files/archive", s.instance(s.filesArchive))
+	m.HandleFunc("POST /v1/instances/{name}/files/extract", s.instance(s.filesExtract))
 	m.HandleFunc("GET /v1/catalog", s.admin(s.catalog))
 	m.HandleFunc("GET /v1/catalog/{registry}/{id}", s.admin(s.catalogItem))
 	m.HandleFunc("POST /v1/instances", s.admin(s.install))
