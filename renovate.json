@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "enabledManagers": [
+    "custom.regex",
+    "github-actions",
+    "gomod"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Container images in registry definitions (image: name:tag@sha256:digest)",
+      "managerFilePatterns": [
+        "/^registry/services/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*\"?(?<depName>[a-z0-9][a-z0-9./_-]*):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Registry images: name the definition file in the pull request",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "commitMessageTopic": "{{depName}} in {{packageFile}}"
+    },
+    {
+      "description": "Databases and other stateful images move only within their major version; upgrades need a migration plan",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "/postgres/",
+        "/mariadb/",
+        "/mysql/",
+        "/mongo/",
+        "/redis/",
+        "/valkey/",
+        "/supabase/"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    }
+  ]
+}

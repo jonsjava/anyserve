@@ -565,6 +565,20 @@ type StatusLine struct {
 	Upgrade string
 }
 
+// upgrade returns the registry's definition version when it differs from
+// the installed one (a new version, or the same version with changes such
+// as new image digests).
+func (a *App) upgrade(in *instance.Instance, d *spec.Definition) string {
+	e, err := a.Find(in.Registry + "/" + in.Service)
+	if err != nil || !DefinitionChanged(d, e.Def) {
+		return ""
+	}
+	if e.Def.Version == in.DefinitionVersion {
+		return e.Def.Version + " (updated)"
+	}
+	return e.Def.Version
+}
+
 // Statuses reports on every instance.
 func (a *App) Statuses() ([]StatusLine, map[string]error, error) {
 	list, broken, err := a.Store.List()
@@ -579,9 +593,7 @@ func (a *App) Statuses() ([]StatusLine, map[string]error, error) {
 			continue
 		}
 		sl := StatusLine{Instance: in, Def: d, Status: t.Status(in)}
-		if e, err := a.Find(in.Registry + "/" + in.Service); err == nil && e.Def.Version != in.DefinitionVersion {
-			sl.Upgrade = e.Def.Version
-		}
+		sl.Upgrade = a.upgrade(in, d)
 		out = append(out, sl)
 	}
 	return out, broken, nil
@@ -594,9 +606,7 @@ func (a *App) Status(name string) (StatusLine, error) {
 		return StatusLine{}, err
 	}
 	sl := StatusLine{Instance: in, Def: d, Status: t.Status(in)}
-	if e, err := a.Find(in.Registry + "/" + in.Service); err == nil && e.Def.Version != in.DefinitionVersion {
-		sl.Upgrade = e.Def.Version
-	}
+	sl.Upgrade = a.upgrade(in, d)
 	return sl, nil
 }
 
@@ -735,8 +745,12 @@ func (a *App) Update(ctx context.Context, name string, warn time.Duration, steam
 		// updating the server files with the one installed.
 		a.Log("Keeping definition %s: %v", in.DefinitionVersion, err)
 	}
-	if err == nil && e.Def.Version != in.DefinitionVersion {
-		a.Log("Applying definition %s (was %s)", e.Def.Version, in.DefinitionVersion)
+	if err == nil && DefinitionChanged(d, e.Def) {
+		if e.Def.Version == in.DefinitionVersion {
+			a.Log("Applying the registry's changes to definition %s", e.Def.Version)
+		} else {
+			a.Log("Applying definition %s (was %s)", e.Def.Version, in.DefinitionVersion)
+		}
 		// New settings in the definition get their defaults.
 		if _, err := e.Def.ResolveSettings(knownSettings(e.Def, in.Settings)); err != nil {
 			return fmt.Errorf("the new definition needs a setting change first: %w", err)
@@ -766,6 +780,8 @@ func (a *App) Update(ctx context.Context, name string, warn time.Duration, steam
 		in.Settings[k] = fmt.Sprint(v)
 	}
 	in.Updated = time.Now().UTC().Truncate(time.Second)
+	// An update that goes through clears any hold from a failed one.
+	in.HeldDefinition, in.HeldBuild = "", ""
 	if err := a.Store.Save(in, d); err != nil {
 		return err
 	}

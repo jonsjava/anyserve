@@ -74,7 +74,7 @@ Run anyserve with no arguments for a guided install.`,
 		availableCmd(), infoCmd(), installCmd(), listCmd(), statusCmd(),
 		startCmd(), stopCmd(), restartCmd(), logsCmd(), updateCmd(),
 		configCmd(), portsCmd(), consoleCmd(), rconCmd(), sayCmd(),
-		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(),
+		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(),
 		refreshCmd(), registryCmd(),
 		steamCmd(), targetsCmd(), runCmd(), versionCmd(),
 	)
@@ -420,6 +420,7 @@ func statusCmd() *cobra.Command {
 			if l.Upgrade != "" {
 				fmt.Fprintf(out, "Update:      definition %s is available; run `anyserve update %s`\n", l.Upgrade, in.Name)
 			}
+			fmt.Fprintf(out, "Auto-update: %s\n", app.Policy(in))
 			return nil
 		},
 	}

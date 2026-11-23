@@ -513,6 +513,15 @@ using a new feature is enough to keep older versions away. Set `requires` only
 when a definition depends on a change older versions would read but get
 wrong, such as a fix to how an existing field behaves.
 
+### Updating a definition
+
+Installed instances notice any change to their definition, not only a new
+`version`, so maintenance that only bumps image digests (the Renovate pull
+requests in the registry) reaches people's `anyserve update` and scheduled
+updates without a version bump. Bump the version's `-N` suffix when the
+change matters to people reading `anyserve list`, and the upstream version
+when the software itself moves on.
+
 ## linuxgsm
 
 ```yaml

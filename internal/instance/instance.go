@@ -42,6 +42,14 @@ type Instance struct {
 	Updated   time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
+	// AutoUpdate is the scheduled-update policy: off, notify or apply.
+	// Empty means notify.
+	AutoUpdate string `json:"auto_update,omitempty"`
+	// HeldDefinition and HeldBuild record an update that failed its health
+	// check and was rolled back (a definition hash, a Steam build id), so
+	// scheduled updates don't retry it. A manual update clears them.
+	HeldDefinition string `json:"held_definition,omitempty"`
+	HeldBuild      string `json:"held_build,omitempty"`
 
 	// Dir is the instance's own directory. Not stored.
 	Dir string `json:"-"`

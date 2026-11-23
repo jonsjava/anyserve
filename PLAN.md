@@ -238,15 +238,48 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **Version info:** the version moved to `internal/version`, and it falls back to Go's build info, so `go install ...@vX` builds know their version. Untagged builds count as newest.
 - **Still affected:** builds from before this change still drop the whole index; they need updating once.
 
+### Session 4 (2026-11-23): scheduled updates
+- **Tagged v0.1.0** on main (6ccf971), so `go install ...@v0.1.0` builds report 0.1.0.
+- **`anyserve auto-update`:** `set <name> off|notify|apply`, `run` (`--dry-run`, `--warn`, `--health-limit`, `--settle`), `status`, `enable --at` / `disable` (a systemd user timer: oneshot service, `Persistent=true`, 30-minute random delay) and `notify <url>` (a plain-text POST; ntfy works as is).
+- **What counts as an update:**
+  - A definition whose content differs from the installed one, not only its version, so digest-only registry changes reach people. `update`, `list` and `status` use the same check.
+  - For SteamCMD servers, a newer Steam build: the installed `steamapps/appmanifest_<id>.acf` build id against `app_info_print`'s branch build id.
+- **apply:** backup → `Update` → wait until healthy (a docker stack must be healthy, not "starting") and staying healthy for the settle time. On failure it rolls back: the old instance and definition are saved, the service is re-registered (a stack's files are re-rendered, so the old image digests return), the pre-update backup is restored and the update is held (`held_definition` / `held_build`). A manual `update` clears holds.
+- **Fixed:** a backup with `stop_first` restarted a *failed* stack afterwards, so a restore's safety backup could start the server before the data was put back. It now restarts only servers that were up.
+- **Registry side:** `renovate.json` opens pull requests for image tag and digest updates in `registry/services/*.yaml`, with no major-version jumps for databases. It needs the Renovate GitHub app installed on the repo (the maintainer's step).
+- **Tested end to end** with a throwaway registry: a broken Gotify definition (same version, a command that can't start) was applied, failed its health check, was rolled back with its data and held. A fixed 3.1.1-2 then applied and cleared the hold. Timer enable/status/disable work.
+- **Not done:** native servers' program files can't be rolled back (only their data); `anyserve upgrade` for Anyserve itself waits for release binaries.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
 3. Release binaries from a tag-triggered workflow
 4. A Pelican egg importer that drafts definitions for review
 5. Several processes per server (DST's caves), more `set` formats (xml, properties, yaml), and a second install source for bring-your-own game data
-6. Scheduled backups and update checks
+6. Scheduled backups (scheduled updates are done)
 7. LinuxGSM pull request for Wurm Unlimited, and an issue about Quake 4's missing base paks
 8. A telnet console (7 Days to Die), multi-command stops (ARK), and TeamSpeak
+
+## Roadmap: remote access (agreed 2026-11-23)
+
+The goal is something between LinuxGSM and Pterodactyl, without exposing a web panel to the internet. It works like `kubectl proxy`: people run Anyserve on their own computer, it connects to the host over one authenticated channel, and the web UI and forwarded ports open on their own `127.0.0.1`.
+
+Decisions:
+- **The channel is an SSH server built into Anyserve** (Go's `x/crypto/ssh`), not the host's sshd. It needs no root, no OS accounts and no sshd configuration. It has its own high port (configurable) and is off until `anyserve remote enable`.
+- **Keys only, no passwords.** Users and their public keys live in Anyserve's config: `anyserve users add alice --key alice.pub [--admin]`. Per-IP rate limiting and an audit log.
+- **Roles:** admins see and manage every instance; a user sees only the instances they own (`anyserve users grant alice my-rust`). Every request is checked on the host.
+- **No shells.** The SSH server offers only: the Anyserve API, port forwarding to ports of instances the user may manage, and SFTP limited to those instances' folders (served in-process with `os.Root`, so symlinks can't escape).
+- **The host key** is an ed25519 key generated on enable; its fingerprint is printed so users can check it on first connect.
+- **Client side:** `anyserve remote add myhost alice@host:port --key ~/.ssh/id_ed25519`, then `anyserve proxy myhost` (local web UI), `anyserve port-forward myhost my-rust rcon`, and `anyserve sftp myhost my-rust` (or any SFTP client).
+
+Steps, each its own pull request:
+1. ~~Scheduled updates~~ (Session 4)
+2. **Host API** (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
+3. **SSH server** (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
+4. **Client:** `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
+5. **Web UI** (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
+6. **SFTP**: in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
+7. **Native servers in containers** (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
 
 ## Decided since the start
 
