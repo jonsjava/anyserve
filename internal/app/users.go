@@ -22,6 +22,9 @@ type User struct {
 	Keys []string `json:"keys,omitempty"`
 	// Instances this user may manage (ignored for admins).
 	Instances []string `json:"instances,omitempty"`
+	// CertSerials are the browser client certificates issued to this user
+	// that are still valid (hex serial numbers). Revoking one removes it.
+	CertSerials []string `json:"cert_serials,omitempty"`
 }
 
 // RemoteConfig holds the built-in SSH server's settings.
@@ -62,11 +65,11 @@ const DefaultRemoteListen = "127.0.0.1:7022"
 type Caller struct {
 	Name string
 	// Admin is the caller's effective admin power: the host's own user,
-	// or an admin user who signed in with a certificate from this host's
-	// admin CA. An admin's plain key gives only user-level access.
+	// or an admin user whose browser presented a client certificate from
+	// this host's web CA. Without one, an admin is an ordinary user.
 	Admin bool
-	// Cert is true when a remote caller signed in with an admin
-	// certificate.
+	// Cert is true when a remote caller's browser presented a valid
+	// client certificate issued to them.
 	Cert bool
 	// Local is true for the host's own user, over the unix socket.
 	Local bool
@@ -109,8 +112,8 @@ func (a *App) CanManage(c Caller, instance string) bool {
 }
 
 // CallerFor returns the caller for a configured user. cert says whether
-// they signed in with an admin certificate; admin power needs both the
-// user's admin flag and the certificate.
+// their browser presented a valid client certificate; admin power needs
+// both the user's admin flag and the certificate.
 func (a *App) CallerFor(name string, cert bool) (Caller, error) {
 	cfg, err := a.LoadConfig()
 	if err != nil {

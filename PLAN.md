@@ -263,7 +263,7 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **`anyserve serve`:** serves the API on `anyserve.sock` (mode 0600; it moves to `$XDG_RUNTIME_DIR/anyserve-<uid>/` when the path is too long for a socket).
 - **Decision:** the CLI keeps working directly, not through the API, so nothing needs a daemon running.
 
-### Session 4c (2026-11-23): SSH server and admin certificates (steps 3–4, part 1)
+### Session 4c (2026-11-23): SSH server, web UI and browser client certificates (steps 3–6)
 - **`internal/remote` server** (x/crypto/ssh):
   - Logins are by key only. The SSH user name must match the Anyserve user whose key it is.
   - 10 failed logins within 10 minutes block an address for 15 minutes.
@@ -273,11 +273,13 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
     - `direct-tcpip` to 127.0.0.1 is allowed only for TCP ports of instances the user manages;
     - a `session` carries only the `sftp` subsystem. `shell` and `exec` get a message and exit status 1.
 - **SFTP** (pkg/sftp request server): `/` lists the user's instances, and `/<instance>/` is its server folder through `os.Root`. Links can't be created, renames across instances are refused, and grants are re-checked on every operation.
-- **Admin certificates (the user's rule: admin actions only with a client certificate or on the host):**
-  - Remote admin power needs an SSH user certificate signed by the host's admin CA (`config/remote/admin_ca_ed25519_key`, which never leaves the host). Certificates come only from `anyserve users cert <name>` run on the host; they're valid 30 days by default and name the user as principal.
-  - An admin who signs in with a plain key is an ordinary user.
-  - Demoting a user in the config removes admin power at once, even with a valid certificate.
-  - Managing users, remote access, installs and removals have no API at all; they're CLI-only on the host. The host's own user (the CLI, the unix socket) is always admin.
+- **Admin actions need a browser client certificate or the host itself** (the user's rule, 2026-11-23; at first I built SSH certificates, then replaced them once the user said they meant browser certificates):
+  - The host has a web CA (`config/remote/web-ca.pem`/`.key`, ECDSA P-256). It's name-constrained (critical) to `localhost`, 127.0.0.0/8 and ::1, so a browser that trusts it can't be fooled about any real site.
+  - The web UI's HTTPS is terminated on the host, inside the SSH channel (`direct-tcpip` to `web.anyserve:443`). The browser's client certificate is checked by the host, so a modified client can't fake it. The certificate's CN must be the SSH user and its serial must still be listed in the user's `cert_serials`.
+  - `anyserve users cert <name>` (admins only; run on the host) writes a .p12 with a one-time import password (90 days by default). `users cert-revoke <name> <serial…>|--all` revokes. The web server's 2-minute idle limit means a revoked certificate stops working within minutes.
+  - Without a valid certificate, an admin's web UI is an ordinary user's (only granted instances). SFTP, port-forward and the CLI's API calls are always user-level.
+  - The host's own user (the CLI, the unix socket, `anyserve proxy` with no host) is always admin. Managing users, remote access, installs and removals have no API.
+  - Web sessions: `POST /v1/web-session` on the API channel returns a token (12 hours, bound to the SSH user) and the CA. The web UI's `/api` needs that token in `X-Anyserve-Token` (stopping other sites' requests, which the browser would send with the client certificate), and a loopback Host header (stopping DNS rebinding).
 - **Client:**
   - `remote.Dial` pins the host key (ed25519). It uses `--key` or ssh-agent, offers `<key>-cert.pub` first when present, and asks for the passphrase of an encrypted key.
   - `APIClient` sends HTTP through the SSH connection; `Forward` forwards a local listener.
@@ -285,14 +287,22 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
   - `users add/add-key/list/remove/grant/revoke/admin/cert`;
   - `remote enable [--listen]` (host key, admin CA, user service `anyserve-serve`), `remote disable`, `remote status`;
   - `remote add <name> user@host[:port]` (checks the fingerprint: an interactive prompt, `--fingerprint`, or `--yes`), `remote list`, `remote remove`;
-  - `port-forward <host> <instance> <port>`.
+  - `port-forward <host> <instance> <port>`;
+  - `users cert/cert-revoke`;
+  - `proxy [host]`: with a host, a local 127.0.0.1:7080 listener tunnels raw TCP to the host's TLS web UI and prints `https://127.0.0.1:7080/#token=…`, and the host's CA is saved under `config/hosts/`. With no host, plain HTTP on 127.0.0.1:7081, with the API in-process as the owner and a per-run token.
+- **Web UI** (`internal/webui`, embedded, no build step): instance list (refreshed every 5 s), start/stop/restart/back up/update, overview and ports, logs (optional 3-second refresh), console, file manager (browse, download via fetch, upload, new folder, rename, delete) and backups. Strict CSP, no inline script.
+- **Tested end to end with the real binary and OpenSSH:**
+  - `remote enable` installs `anyserve-serve`. `remote add` refuses a wrong fingerprint and accepts the right one.
+  - `port-forward` reaches the user's own instance and refuses another's. `sftp` lists only the user's instance, and `ssh … id` gets the no-shell message.
+  - Through `proxy`, curl as the browser: with no certificate the admin sees 0 instances, with the .p12 2 instances and `admin: true`. No token gets 401, a foreign Host gets 421.
+  - The local UI in the browser pane: list, detail, files, logs.
 - **Tests** (real SSH over loopback):
   - logins: wrong user, unknown key, changed host key;
   - the API's view per user;
   - forwards: allowed, someone else's port, a non-instance port, another host;
   - SFTP: reading, writing, `..`, symlink escapes, symlink creation, renames across instances;
   - no shell;
-  - admin certificates: plain key, valid certificate, demoted user, foreign CA, wrong principal, expired.
+  - the web path: TLS through the tunnel with and without a client certificate, a wrong token, another user's token, a revoked certificate, a foreign CA; the CA's name constraints.
 - **Default port** 7022, on 127.0.0.1 until `--listen` says otherwise.
 
 ### Next
@@ -312,7 +322,7 @@ The goal is something between LinuxGSM and Pterodactyl, without exposing a web p
 Decisions:
 - **The channel is an SSH server built into Anyserve** (Go's `x/crypto/ssh`), not the host's sshd. It needs no root, no OS accounts and no sshd configuration. It has its own high port (configurable) and is off until `anyserve remote enable`.
 - **Keys only, no passwords.** Users and their public keys live in Anyserve's config: `anyserve users add alice --key alice.pub [--admin]`. Per-IP rate limiting and an audit log.
-- **Admin actions need a client certificate or the host itself** (the user's rule, 2026-11-23): remote admin power needs an SSH certificate from the host's admin CA, issued only on the host. User management has no API.
+- **Admin actions need a browser client certificate or the host itself** (the user's rule, 2026-11-23): in the web UI, admin power needs a TLS client certificate from the host's web CA, checked on the host. Everything else remote is user-level. User management has no API.
 - **Roles:** admins see and manage every instance; a user sees only the instances they own (`anyserve users grant alice my-rust`). Every request is checked on the host.
 - **No shells.** The SSH server offers only: the Anyserve API, port forwarding to ports of instances the user may manage, and SFTP limited to those instances' folders (served in-process with `os.Root`, so symlinks can't escape).
 - **The host key** is an ed25519 key generated on enable; its fingerprint is printed so users can check it on first connect.
@@ -322,9 +332,9 @@ Steps, each its own pull request:
 1. ~~Scheduled updates~~ (Session 4)
 2. ~~**Host API**~~ (Session 4b) (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
 3. ~~**SSH server**~~ (Session 4c) (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
-4. **Client:** `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
-5. **Web UI** (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
-6. **SFTP**: in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
+4. ~~**Client:**~~ (Session 4c) `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
+5. ~~**Web UI**~~ (Session 4c) (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
+6. ~~**SFTP**~~ (Session 4c): in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
 7. **Native servers in containers** (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
 
 ## Decided since the start

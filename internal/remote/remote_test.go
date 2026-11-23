@@ -5,9 +5,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,21 +20,24 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
 
 	"github.com/jonsjava/anyserve/internal/api"
 	"github.com/jonsjava/anyserve/internal/app"
 	"github.com/jonsjava/anyserve/internal/instance"
 	"github.com/jonsjava/anyserve/internal/paths"
 	"github.com/jonsjava/anyserve/internal/spec"
+	"github.com/jonsjava/anyserve/internal/webui"
 )
 
 type fixture struct {
-	addr      string
-	hostKey   ssh.PublicKey
-	aliceKey  string // private key file
-	ports     map[string]int
-	home      string
-	newApp    func(io.Writer) (*app.App, error)
+	addr     string
+	hostKey  ssh.PublicKey
+	aliceKey string // private key file
+	ports    map[string]int
+	home     string
+	newApp   func(io.Writer) (*app.App, error)
+	ca       *WebCA
 }
 
 func newKey(t *testing.T, dir, name string) (string, string) {
@@ -92,11 +98,14 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f.newApp = newApp
-	f.start(t, nil)
+	if f.ca, err = LoadOrCreateWebCA(dirs.Config, "test"); err != nil {
+		t.Fatal(err)
+	}
+	f.start(t)
 	return f
 }
 
-func (f *fixture) start(t *testing.T, ca ssh.PublicKey) {
+func (f *fixture) start(t *testing.T) {
 	signer, _, err := LoadOrCreateHostKey(filepath.Join(f.home, "config"))
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +115,7 @@ func (f *fixture) start(t *testing.T, ca ssh.PublicKey) {
 		App:     func() (*app.App, error) { return f.newApp(io.Discard) },
 		API:     (&api.Server{NewApp: f.newApp}).Handler(),
 		HostKey: signer,
-		AdminCA: ca,
+		WebCA:   f.ca,
 		Log:     t.Logf,
 	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -117,11 +126,6 @@ func (f *fixture) start(t *testing.T, ca ssh.PublicKey) {
 	t.Cleanup(cancel)
 	go srv.Serve(ctx, l)
 	f.addr = l.Addr().String()
-}
-
-func restartWithCA(t *testing.T, f *fixture, ca ssh.PublicKey) *fixture {
-	f.start(t, ca)
-	return f
 }
 
 func (f *fixture) host(user, key string) Host {
@@ -197,7 +201,7 @@ func TestForward(t *testing.T) {
 	}
 	for _, addr := range []string{
 		"127.0.0.1:" + strconv.Itoa(f.ports["beta"]), // not alice's
-		"127.0.0.1:22",                    // not an instance
+		"127.0.0.1:22", // not an instance
 		"10.0.0.1:" + strconv.Itoa(f.ports["alpha"]), // not this host
 	} {
 		if conn, err := c.Dial("tcp", addr); err == nil {
@@ -288,70 +292,109 @@ func TestNoShell(t *testing.T) {
 	}
 }
 
-func TestAdminNeedsCert(t *testing.T) {
+func TestWebClientCert(t *testing.T) {
 	f := setup(t)
-	dirs := filepath.Join(f.home, "config")
-	a := &app.App{Dirs: paths.Dirs{Config: dirs, Data: filepath.Join(f.home, "data")}, Store: instance.Store{Root: filepath.Join(f.home, "data", "instances")}}
+	a, _ := f.newApp(io.Discard)
 	samKey, samPub := newKey(t, f.home, "sam")
 	if err := a.AddUser("sam", true, []string{samPub}); err != nil {
 		t.Fatal(err)
 	}
-	count := func(h Host) int {
-		c, err := Dial(h)
-		if err != nil {
-			t.Fatalf("dial: %v", err)
+	cc, err := f.ca.IssueClientCert("sam", time.Hour, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.UpdateUser("sam", func(u *app.User) error { u.CertSerials = append(u.CertSerials, cc.Serial); return nil })
+	key, cert, _, err := pkcs12.DecodeChain(cc.P12, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCert := tls.Certificate{Certificate: [][]byte{cert.Raw}, PrivateKey: key}
+
+	c, err := Dial(f.host("sam", samKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	resp, err := APIClient(c).Post(APIURL+"/v1/web-session", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sess WebSession
+	json.NewDecoder(resp.Body).Decode(&sess)
+	resp.Body.Close()
+	if sess.Token == "" || !strings.Contains(sess.CA, "BEGIN CERTIFICATE") {
+		t.Fatalf("session = %+v", sess)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM([]byte(sess.CA))
+
+	web := func(withCert bool, token string) (int, int) {
+		cfg := &tls.Config{RootCAs: pool, ServerName: "localhost"}
+		if withCert {
+			cfg.Certificates = []tls.Certificate{clientCert}
 		}
-		defer c.Close()
-		resp, err := APIClient(c).Get(APIURL + "/v1/instances")
+		hc := &http.Client{Transport: &http.Transport{
+			TLSClientConfig: cfg,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return c.DialContext(ctx, "tcp", "web.anyserve:443")
+			},
+		}}
+		req, _ := http.NewRequest("GET", "https://127.0.0.1:7080/api/v1/instances", nil)
+		req.Host = "127.0.0.1:7080"
+		req.Header.Set(webui.TokenHeader, token)
+		resp, err := hc.Do(req)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("web request: %v", err)
 		}
 		defer resp.Body.Close()
 		var list []api.Instance
 		json.NewDecoder(resp.Body).Decode(&list)
-		return len(list)
+		return resp.StatusCode, len(list)
 	}
-	// With a plain key, an admin is an ordinary user with no grants.
-	if n := count(f.host("sam", samKey)); n != 0 {
-		t.Errorf("admin with a plain key sees %d instances", n)
+	if code, n := web(false, sess.Token); code != 200 || n != 0 {
+		t.Errorf("admin without a client certificate: %d, %d instances", code, n)
 	}
-	// f.setup's server loaded no CA; start one that has it.
-	ca, err := LoadOrCreateAdminCA(dirs)
+	if code, n := web(true, sess.Token); code != 200 || n != 2 {
+		t.Errorf("admin with a client certificate: %d, %d instances", code, n)
+	}
+	if code, _ := web(true, "wrong"); code != 401 {
+		t.Errorf("wrong token: %d", code)
+	}
+	// alice's token doesn't work on sam's connection.
+	ac, _ := Dial(f.host("alice", f.aliceKey))
+	defer ac.Close()
+	resp, _ = APIClient(ac).Post(APIURL+"/v1/web-session", "", nil)
+	var asess WebSession
+	json.NewDecoder(resp.Body).Decode(&asess)
+	resp.Body.Close()
+	if code, _ := web(true, asess.Token); code != 401 {
+		t.Errorf("another user's token: %d", code)
+	}
+	// Revoked: the certificate no longer counts.
+	a.UpdateUser("sam", func(u *app.User) error { u.CertSerials = nil; return nil })
+	if code, n := web(true, sess.Token); code != 200 || n != 0 {
+		t.Errorf("revoked certificate: %d, %d instances", code, n)
+	}
+	// A certificate from another CA fails the TLS handshake's check.
+	other, _ := LoadOrCreateWebCA(t.TempDir(), "other")
+	occ, _ := other.IssueClientCert("sam", time.Hour, "pw")
+	a.UpdateUser("sam", func(u *app.User) error { u.CertSerials = []string{occ.Serial}; return nil })
+	okey, ocert, _, _ := pkcs12.DecodeChain(occ.P12, "pw")
+	clientCert = tls.Certificate{Certificate: [][]byte{ocert.Raw}, PrivateKey: okey}
+	func() {
+		defer func() { recover() }()
+		if code, n := web(true, sess.Token); code == 200 && n != 0 {
+			t.Errorf("foreign certificate gave %d instances", n)
+		}
+	}()
+}
+
+func TestWebCAConstrained(t *testing.T) {
+	ca, err := LoadOrCreateWebCA(t.TempDir(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f2 := restartWithCA(t, f, ca.PublicKey())
-	pub, _, _, _, _ := ssh.ParseAuthorizedKey([]byte(samPub))
-	cert, err := SignAdminCert(ca, "sam", pub, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(samKey+"-cert.pub", ssh.MarshalAuthorizedKey(cert), 0o644)
-	if n := count(f2.host("sam", samKey)); n != 2 {
-		t.Errorf("admin with a certificate sees %d instances, want 2", n)
-	}
-	// Demoted in the config: the certificate no longer gives admin power,
-	// and login with it fails (the plain key still works as a user).
-	a.UpdateUser("sam", func(u *app.User) error { u.Admin = false; return nil })
-	if n := count(f2.host("sam", samKey)); n != 0 {
-		t.Errorf("demoted admin sees %d instances", n)
-	}
-	a.UpdateUser("sam", func(u *app.User) error { u.Admin = true; return nil })
-	// A certificate from another CA, or for someone else, doesn't count.
-	other, _ := LoadOrCreateAdminCA(t.TempDir())
-	bad, _ := SignAdminCert(other, "sam", pub, time.Hour)
-	os.WriteFile(samKey+"-cert.pub", ssh.MarshalAuthorizedKey(bad), 0o644)
-	if n := count(f2.host("sam", samKey)); n != 0 {
-		t.Errorf("certificate from a foreign CA gave %d instances", n)
-	}
-	forAlice, _ := SignAdminCert(ca, "alice", pub, time.Hour)
-	os.WriteFile(samKey+"-cert.pub", ssh.MarshalAuthorizedKey(forAlice), 0o644)
-	if n := count(f2.host("sam", samKey)); n != 0 {
-		t.Errorf("certificate naming alice gave sam %d instances", n)
-	}
-	expired, _ := SignAdminCert(ca, "sam", pub, -time.Hour)
-	os.WriteFile(samKey+"-cert.pub", ssh.MarshalAuthorizedKey(expired), 0o644)
-	if n := count(f2.host("sam", samKey)); n != 0 {
-		t.Errorf("expired certificate gave %d instances", n)
+	if len(ca.Cert.PermittedDNSDomains) != 1 || ca.Cert.PermittedDNSDomains[0] != "localhost" || !ca.Cert.PermittedDNSDomainsCritical {
+		t.Errorf("CA isn't constrained to localhost: %v", ca.Cert.PermittedDNSDomains)
 	}
 }

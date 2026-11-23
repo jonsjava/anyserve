@@ -2,13 +2,11 @@ package remote
 
 import (
 	"crypto/ed25519"
-	"encoding/binary"
 	"crypto/rand"
 	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -53,34 +51,6 @@ func Fingerprint(k ssh.PublicKey) string { return ssh.FingerprintSHA256(k) }
 
 func pemEncode(b *pem.Block) []byte { return pem.EncodeToMemory(b) }
 
-// AdminCAPath is the private key that signs admin certificates. It never
-// leaves the host: certificates are issued only by `anyserve users cert`
-// run there.
-func AdminCAPath(configDir string) string {
-	return filepath.Join(configDir, "remote", "admin_ca_ed25519_key")
-}
-
-// LoadOrCreateAdminCA reads the admin CA, creating it the first time.
-func LoadOrCreateAdminCA(configDir string) (ssh.Signer, error) {
-	return loadOrCreate(AdminCAPath(configDir), "anyserve admin CA")
-}
-
-// LoadAdminCA returns the admin CA's public key, or nil if there's none.
-func LoadAdminCA(configDir string) (ssh.PublicKey, error) {
-	b, err := os.ReadFile(AdminCAPath(configDir))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	s, err := ssh.ParsePrivateKey(b)
-	if err != nil {
-		return nil, err
-	}
-	return s.PublicKey(), nil
-}
-
 func loadOrCreate(p, comment string) (ssh.Signer, error) {
 	if b, err := os.ReadFile(p); err == nil {
 		return ssh.ParsePrivateKey(b)
@@ -102,25 +72,4 @@ func loadOrCreate(p, comment string) (ssh.Signer, error) {
 		return nil, err
 	}
 	return ssh.NewSignerFromKey(priv)
-}
-
-// SignAdminCert issues an admin certificate for a user's public key.
-func SignAdminCert(ca ssh.Signer, user string, pub ssh.PublicKey, valid time.Duration) (*ssh.Certificate, error) {
-	serial := make([]byte, 8)
-	rand.Read(serial)
-	now := time.Now()
-	cert := &ssh.Certificate{
-		Key:             pub,
-		Serial:          binary.BigEndian.Uint64(serial),
-		CertType:        ssh.UserCert,
-		KeyId:           "anyserve-admin:" + user,
-		ValidPrincipals: []string{user},
-		ValidAfter:      uint64(now.Add(-5 * time.Minute).Unix()),
-		ValidBefore:     uint64(now.Add(valid).Unix()),
-		Permissions: ssh.Permissions{
-			// Only what the Anyserve server uses; no shells anyway.
-			Extensions: map[string]string{"permit-port-forwarding": ""},
-		},
-	}
-	return cert, cert.SignCert(rand.Reader, ca)
 }

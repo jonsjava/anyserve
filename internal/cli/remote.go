@@ -19,6 +19,7 @@ import (
 	"github.com/jonsjava/anyserve/internal/api"
 	"github.com/jonsjava/anyserve/internal/app"
 	"github.com/jonsjava/anyserve/internal/remote"
+	"github.com/jonsjava/anyserve/internal/spec"
 	"github.com/jonsjava/anyserve/internal/target"
 )
 
@@ -43,15 +44,16 @@ func startRemote(ctx context.Context, cmd *cobra.Command, a *app.App, s *api.Ser
 	if err != nil {
 		return fmt.Errorf("remote access: %w", err)
 	}
-	ca, err := remote.LoadAdminCA(a.Dirs.Config)
+	host, _ := os.Hostname()
+	ca, err := remote.LoadOrCreateWebCA(a.Dirs.Config, host)
 	if err != nil {
-		return fmt.Errorf("admin CA: %w", err)
+		return fmt.Errorf("web CA: %w", err)
 	}
 	srv := &remote.Server{
+		WebCA:   ca,
 		App:     func() (*app.App, error) { return app.New(os.Stderr) },
 		API:     s.Handler(),
 		HostKey: key,
-		AdminCA: ca,
 		Audit:   s.Audit,
 		Log:     func(f string, args ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", args...) },
 	}
@@ -66,9 +68,9 @@ func usersCmd() *cobra.Command {
 		Short: "Manage who may manage instances remotely",
 		Long: `Users sign in to the built-in SSH server with their SSH keys and see and manage
 only the instances granted to them. Admins manage every instance, but only
-with an admin certificate issued on this host (` + "`anyserve users cert`" + `); with a
-plain key an admin is an ordinary user. Managing users is done here, on
-the host, never remotely.`,
+in the web UI with a browser client certificate issued on this host
+(` + "`anyserve users cert`" + `); otherwise an admin is an ordinary user. Managing users
+is done here, on the host, never remotely.`,
 		Example: `  anyserve users add alice --key ~/alice.pub
   anyserve users grant alice friends-rust
   anyserve users add sam --key "ssh-ed25519 AAAA... sam@laptop" --admin`,
@@ -130,19 +132,22 @@ the host, never remotely.`,
 	}
 	addKey.Flags().StringArrayVar(&addKeys, "key", nil, "public key, or a file holding them (repeatable)")
 
-	var certKey, certOut string
+	var certOut string
 	var certValid time.Duration
 	cert := &cobra.Command{
 		Use:   "cert <name>",
-		Short: "Issue an admin certificate (run on the host; admins need one to act as admins remotely)",
-		Long: `Remote admin power needs an SSH certificate signed by this host's admin CA,
-not just a key: an admin who signs in with a plain key gets only the
-instances granted to them. Certificates are issued here, on the host, and
-expire (30 days by default). Give the admin's public key; they put the
-certificate beside their private key (id_ed25519-cert.pub for id_ed25519),
-where Anyserve and OpenSSH find it.`,
-		Example: `  anyserve users cert sam --key sam.pub --out sam-cert.pub`,
-		Args:    cobra.ExactArgs(1),
+		Short: "Issue a browser client certificate to an admin (on the host only)",
+		Long: `Admins use their admin powers in the web UI only when their browser presents a
+client certificate issued here, on the host. Without one, an admin's web UI
+shows only the instances granted to them, like any user's.
+
+This writes a .p12 file and prints its import password once. The admin
+imports it into their browser (Settings → Privacy and security → Manage
+certificates → Your certificates → Import) and, once, trusts the host's web
+CA (shown by ` + "`anyserve proxy`" + `), which only covers localhost addresses.`,
+		Example: `  anyserve users cert sam --out sam.p12
+  anyserve users cert-revoke sam --all`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp(cmd)
 			if err != nil {
@@ -157,50 +162,77 @@ where Anyserve and OpenSSH find it.`,
 				return err
 			}
 			if !u.Admin {
-				return fmt.Errorf("%s isn't an admin (`anyserve users admin %s true` first)", u.Name, u.Name)
+				return fmt.Errorf("%s isn't an admin, and a certificate only matters for admins (`anyserve users admin %s true` first)", u.Name, u.Name)
 			}
-			var line string
-			if certKey == "" {
-				if len(u.Keys) != 1 {
-					return errors.New("say which public key to certify with --key")
-				}
-				line = u.Keys[0]
-			} else {
-				ks, err := readKeys([]string{certKey})
-				if err != nil {
-					return err
-				}
-				line = ks[0]
-			}
-			pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
-			if err != nil {
-				return err
-			}
-			ca, err := remote.LoadOrCreateAdminCA(a.Dirs.Config)
-			if err != nil {
-				return err
-			}
-			c, err := remote.SignAdminCert(ca, u.Name, pub, certValid)
-			if err != nil {
-				return err
-			}
-			data := ssh.MarshalAuthorizedKey(c)
 			if certOut == "" {
-				cmd.OutOrStdout().Write(data)
-				return nil
+				certOut = u.Name + ".p12"
 			}
-			if err := os.WriteFile(certOut, data, 0o644); err != nil {
+			host, _ := os.Hostname()
+			ca, err := remote.LoadOrCreateWebCA(a.Dirs.Config, host)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s: an admin certificate for %s, valid until %s.\nIf serve is running, restart it once after the first certificate (`anyserve remote enable`) so it loads the CA.\n", certOut, u.Name, time.Unix(int64(c.ValidBefore), 0).Format(time.DateTime))
+			pw := spec.RandomPassword(16)
+			cc, err := ca.IssueClientCert(u.Name, certValid, pw)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(certOut, cc.P12, 0o600); err != nil {
+				return err
+			}
+			if err := a.UpdateUser(u.Name, func(u *app.User) error {
+				u.CertSerials = append(u.CertSerials, cc.Serial)
+				return nil
+			}); err != nil {
+				os.Remove(certOut)
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Wrote %s: a browser client certificate for %s, valid until %s (serial %s).\n", certOut, u.Name, cc.NotAfter.Format(time.DateOnly), cc.Serial)
+			fmt.Fprintf(out, "Import password (shown only now): %s\n", cc.Password)
+			fmt.Fprintln(out, "Send the file and the password to the admin by different routes, then delete your copy of the file.")
 			return nil
 		},
 	}
-	cert.Flags().StringVar(&certKey, "key", "", "the admin's public key or .pub file (default: their only key)")
-	cert.Flags().StringVar(&certOut, "out", "", "write the certificate here (default: print it)")
-	cert.Flags().DurationVar(&certValid, "valid", 30*24*time.Hour, "how long the certificate is valid")
+	cert.Flags().StringVar(&certOut, "out", "", "where to write the .p12 file (default <name>.p12)")
+	cert.Flags().DurationVar(&certValid, "valid", 90*24*time.Hour, "how long the certificate is valid")
 
-	cmd.AddCommand(add, addKey, cert,
+	var revokeAll bool
+	revoke := &cobra.Command{
+		Use:   "cert-revoke <name> [serial...]",
+		Short: "Revoke browser client certificates",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := newApp(cmd)
+			if err != nil {
+				return err
+			}
+			if !revokeAll && len(args) < 2 {
+				return errors.New("give serial numbers (`anyserve users list` shows how many there are) or --all")
+			}
+			return a.UpdateUser(args[0], func(u *app.User) error {
+				if revokeAll {
+					u.CertSerials = nil
+					return nil
+				}
+				var keep []string
+				for _, s := range u.CertSerials {
+					drop := false
+					for _, r := range args[1:] {
+						drop = drop || strings.EqualFold(s, r)
+					}
+					if !drop {
+						keep = append(keep, s)
+					}
+				}
+				u.CertSerials = keep
+				return nil
+			})
+		},
+	}
+	revoke.Flags().BoolVar(&revokeAll, "all", false, "revoke all of this user's certificates")
+
+	cmd.AddCommand(add, addKey, cert, revoke,
 		&cobra.Command{
 			Use:   "list",
 			Short: "List users, their roles and instances",
@@ -219,13 +251,13 @@ where Anyserve and OpenSSH find it.`,
 					return nil
 				}
 				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-				fmt.Fprintln(w, "NAME\tROLE\tKEYS\tINSTANCES")
+				fmt.Fprintln(w, "NAME\tROLE\tKEYS\tCERTS\tINSTANCES")
 				for _, u := range cfg.Users {
 					role, inst := "user", strings.Join(u.Instances, ", ")
 					if u.Admin {
 						role, inst = "admin", "all"
 					}
-					fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", u.Name, role, len(u.Keys), inst)
+					fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\n", u.Name, role, len(u.Keys), len(u.CertSerials), inst)
 				}
 				return w.Flush()
 			},
@@ -371,7 +403,8 @@ on your own 127.0.0.1. SFTP clients connect to the same address.`,
 			if err != nil {
 				return err
 			}
-			if _, err := remote.LoadOrCreateAdminCA(a.Dirs.Config); err != nil {
+			hostname, _ := os.Hostname()
+			if _, err := remote.LoadOrCreateWebCA(a.Dirs.Config, hostname); err != nil {
 				return err
 			}
 			if err := a.SaveConfig(cfg); err != nil {

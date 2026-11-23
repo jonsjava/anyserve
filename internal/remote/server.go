@@ -10,7 +10,6 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -28,10 +27,14 @@ import (
 	"github.com/jonsjava/anyserve/internal/app"
 )
 
-// APIHost is the forwarding address that reaches the API.
+// Forwarding addresses with a special meaning: the API (plain HTTP, for
+// the CLI) and the web UI (HTTPS, terminated here on the host, so the
+// host itself checks browser client certificates).
 const (
 	APIHost = "api.anyserve"
 	APIPort = 80
+	WebHost = "web.anyserve"
+	WebPort = 443
 )
 
 // Server is the SSH server.
@@ -41,18 +44,20 @@ type Server struct {
 	// API serves API connections; callers are attached per connection.
 	API     http.Handler
 	HostKey ssh.Signer
-	// AdminCA signs admin certificates (`anyserve users cert`). Admin
-	// power remotely needs one; nil means no remote admins.
-	AdminCA ssh.PublicKey
+	// WebCA serves the web UI over TLS and checks admins' browser client
+	// certificates. Nil turns the web UI off.
+	WebCA *WebCA
 	// Audit gets one line per connection, login failure and forward.
 	Audit io.Writer
 	// Log reports problems.
 	Log func(format string, args ...any)
 
-	limiter limiter
-	auditMu sync.Mutex
-	apiConn chan net.Conn
-	once    sync.Once
+	limiter  limiter
+	auditMu  sync.Mutex
+	apiConn  chan net.Conn
+	webConn  chan net.Conn
+	once     sync.Once
+	sessions sessions
 }
 
 func (s *Server) audit(format string, args ...any) {
@@ -76,9 +81,6 @@ func (s *Server) config(remote net.Addr) *ssh.ServerConfig {
 			if err != nil {
 				return nil, err
 			}
-			if cert, ok := key.(*ssh.Certificate); ok {
-				return s.checkCert(meta, cert, c)
-			}
 			u, ok := c.UserForKey(key)
 			if !ok || u.Name != meta.User() {
 				// Clients try several keys, so a miss isn't a failure yet.
@@ -98,28 +100,6 @@ func (s *Server) config(remote net.Addr) *ssh.ServerConfig {
 	}
 	cfg.AddHostKey(s.HostKey)
 	return cfg
-}
-
-// checkCert accepts an admin certificate: signed by this host's admin CA,
-// a user certificate naming the login user as a principal, within its
-// validity, for a user who is still an admin in the config.
-func (s *Server) checkCert(meta ssh.ConnMetadata, cert *ssh.Certificate, c *app.Config) (*ssh.Permissions, error) {
-	if s.AdminCA == nil {
-		return nil, errors.New("admin certificates aren't set up on this host")
-	}
-	checker := &ssh.CertChecker{
-		IsUserAuthority: func(auth ssh.PublicKey) bool {
-			return bytes.Equal(auth.Marshal(), s.AdminCA.Marshal())
-		},
-	}
-	if _, err := checker.Authenticate(meta, cert); err != nil {
-		return nil, err
-	}
-	u, err := c.FindUser(meta.User())
-	if err != nil || !u.Admin {
-		return nil, errors.New("certificate for someone who isn't an admin")
-	}
-	return &ssh.Permissions{Extensions: map[string]string{"user": u.Name, "cert": "admin"}}, nil
 }
 
 // Serve accepts SSH connections until ctx ends.
@@ -162,15 +142,10 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	c.SetDeadline(time.Time{})
 	s.limiter.ok(ip)
 	user := conn.Permissions.Extensions["user"]
-	cert := conn.Permissions.Extensions["cert"] == "admin"
-	how := "key"
-	if cert {
-		how = "admin certificate"
-	}
-	s.audit("%s %s connected with a %s (%s)", c.RemoteAddr(), user, how, conn.ClientVersion())
+	s.audit("%s %s connected (%s)", c.RemoteAddr(), user, conn.ClientVersion())
 	defer s.audit("%s %s disconnected", c.RemoteAddr(), user)
 	go ssh.DiscardRequests(reqs)
-	sess := &session{s: s, conn: conn, user: user, cert: cert}
+	sess := &session{s: s, conn: conn, user: user}
 	go func() {
 		<-ctx.Done()
 		conn.Close()
@@ -191,7 +166,6 @@ type session struct {
 	s    *Server
 	conn *ssh.ServerConn
 	user string
-	cert bool
 }
 
 func (ss *session) caller() (app.Caller, *app.App, error) {
@@ -199,7 +173,7 @@ func (ss *session) caller() (app.Caller, *app.App, error) {
 	if err != nil {
 		return app.Caller{}, nil, err
 	}
-	c, err := a.CallerFor(ss.user, ss.cert)
+	c, err := a.CallerFor(ss.user, false)
 	return c, a, err
 }
 
@@ -222,13 +196,18 @@ func (ss *session) forward(nc ssh.NewChannel) {
 		nc.Reject(ssh.Prohibited, "your account was removed")
 		return
 	}
-	if req.Host == APIHost && req.Port == APIPort {
+	if (req.Host == APIHost && req.Port == APIPort) || (req.Host == WebHost && req.Port == WebPort && ss.s.webConn != nil) {
 		ch, reqs, err := nc.Accept()
 		if err != nil {
 			return
 		}
 		go ssh.DiscardRequests(reqs)
-		ss.s.apiConn <- &chanConn{Channel: ch, caller: caller, local: ss.conn.LocalAddr(), remote: ss.conn.RemoteAddr()}
+		cc := &chanConn{Channel: ch, caller: caller, local: ss.conn.LocalAddr(), remote: ss.conn.RemoteAddr()}
+		if req.Host == APIHost {
+			ss.s.apiConn <- cc
+		} else {
+			ss.s.webConn <- cc
+		}
 		return
 	}
 	switch req.Host {
@@ -351,12 +330,13 @@ func exitStatus(ch ssh.Channel, code uint32) {
 	ch.SendRequest("exit-status", false, b)
 }
 
-// startAPI runs one HTTP server over all API channels.
+// startAPI runs one HTTP server over all API channels, and one HTTPS
+// server over all web UI channels.
 func (s *Server) startAPI() {
 	s.apiConn = make(chan net.Conn)
 	l := &chanListener{conns: s.apiConn, done: make(chan struct{})}
 	srv := &http.Server{
-		Handler:           s.API,
+		Handler:           s.apiRoutes(),
 		ReadHeaderTimeout: 30 * time.Second,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if cc, ok := c.(*chanConn); ok {
@@ -366,6 +346,11 @@ func (s *Server) startAPI() {
 		},
 	}
 	go srv.Serve(l)
+	if s.WebCA != nil {
+		if err := s.startWeb(); err != nil && s.Log != nil {
+			s.Log("Web UI is off: %v", err)
+		}
+	}
 }
 
 // chanConn makes an SSH channel look like a network connection.

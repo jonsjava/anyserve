@@ -69,20 +69,7 @@ func authMethods(keyFile string) ([]ssh.AuthMethod, func(), error) {
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("%s: %w", keyFile, err)
 	}
-	signers := []ssh.Signer{}
-	// An admin certificate beside the key (id_ed25519-cert.pub, as
-	// OpenSSH names it) is offered first.
-	if cb, err := os.ReadFile(expand(keyFile) + "-cert.pub"); err == nil {
-		if pk, _, _, _, err := ssh.ParseAuthorizedKey(cb); err == nil {
-			if cert, ok := pk.(*ssh.Certificate); ok {
-				if cs, err := ssh.NewCertSigner(cert, signer); err == nil {
-					signers = append(signers, cs)
-				}
-			}
-		}
-	}
-	signers = append(signers, signer)
-	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}, cleanup, nil
+	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, cleanup, nil
 }
 
 func expand(p string) string {

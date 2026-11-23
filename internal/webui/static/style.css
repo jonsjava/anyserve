@@ -1,0 +1,44 @@
+:root{--bg:#f6f7f9;--panel:#fff;--text:#1b1f24;--muted:#5f6b7a;--line:#dde2e8;--accent:#2457d6;--accent-text:#fff;--ok:#1d7f46;--warn:#9a6700;--bad:#c4302b;--code:#f0f2f5}
+[hidden]{display:none!important}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--panel:#191d22;--text:#e6e9ed;--muted:#97a1ad;--line:#2b3139;--accent:#6c95ff;--accent-text:#0b0e12;--ok:#4cc38a;--warn:#e3b341;--bad:#ff7b72;--code:#0d1014}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-weight:600;font-size:16px}.logo{color:var(--accent)}
+.muted{color:var(--muted)}.small{font-size:12px}
+.layout{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+@media (max-width:760px){.layout{grid-template-columns:1fr}}
+.list-head{display:flex;justify-content:space-between;align-items:baseline}
+h2{font-size:16px;margin:0 0 8px}h3{font-size:14px;margin:16px 0 6px}
+.card{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;color:inherit;font:inherit}
+.card:hover,.card[aria-current=true]{border-color:var(--accent)}
+.card .name{font-weight:600}.card .svc{color:var(--muted);font-size:12px}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;margin-left:6px;vertical-align:1px}
+.s-running{color:var(--ok)}.s-stopped{color:var(--muted)}.s-failed{color:var(--bad)}.s-starting,.s-partly,.s-stopping{color:var(--warn)}
+.detail{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.welcome{display:flex;align-items:center;justify-content:center;min-height:200px}
+.detail-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+button,.button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+button:hover,.button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+button[type=submit],.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.state-line{margin:8px 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:8px 0 12px;overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:6px 10px}
+.tabs button[aria-selected=true]{border-bottom-color:var(--accent);font-weight:600}
+.out{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:10px;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:8px 0}
+.row{display:flex;gap:8px;align-items:center}.wrap{flex-wrap:wrap}.spacer{flex:1}
+.row input:not([type]){flex:1;min-width:0}
+input{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+table{border-collapse:collapse;width:100%}
+.grid th,.grid td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+.grid th{font-weight:600;color:var(--muted);font-size:12px}
+.kv td{padding:3px 12px 3px 0;vertical-align:top}.kv td:first-child{color:var(--muted);white-space:nowrap}
+.files td:last-child{text-align:right;white-space:nowrap}
+.files button{padding:2px 7px;font-size:12px}
+.link{background:none;border:0;padding:0;color:var(--accent);cursor:pointer}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.toast{position:fixed;bottom:16px;right:16px;max-width:min(480px,calc(100vw - 32px));background:var(--text);color:var(--bg);padding:10px 14px;border-radius:8px;white-space:pre-wrap}
+.toast.bad{background:var(--bad);color:#fff}
