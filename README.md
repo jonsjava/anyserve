@@ -13,7 +13,17 @@ arguments for a guided install, or script everything with flags.
 
 ## Install
 
-There are no release binaries yet. Build from source with Go 1.27 or newer:
+On Linux or macOS, install the latest release for your user (no root needed):
+
+```bash
+curl -fsSL https://github.com/jonsjava/anyserve/releases/latest/download/install.sh | sh
+```
+
+It puts `anyserve` in `~/.local/bin`, after checking it against the release's
+checksums and those against Anyserve's release key. `anyserve upgrade` moves to
+a newer release the same way. Windows builds are attached to each release.
+
+Or build from source with Go 1.27 or newer:
 
 ```bash
 go install github.com/jonsjava/anyserve/cmd/anyserve@latest
@@ -146,6 +156,7 @@ Each service's quirks are noted in its definition and shown by `anyserve info`.
 | `https use/status/sync` | The HTTPS proxy for apps' domains: Caddy (default, run by Anyserve), your own nginx or Traefik, or none. See [HTTPS for apps](#https-for-apps) |
 | `remote enable/disable/status` | This host's built-in SSH server for remote users |
 | `remote add/list/remove` | Hosts you manage from this computer |
+| `upgrade [--check]` | Update Anyserve itself to the latest signed release |
 | `proxy [host]` | The web UI on your own 127.0.0.1, for this machine or a remote host |
 | `port-forward <host> <instance> <port>` | Reach a remote instance's TCP port on this computer |
 | `serve` | The API on a private socket, plus the SSH server when remote access is on (installed as a service by `remote enable`) |

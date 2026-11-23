@@ -324,3 +324,6 @@ func ServeState() string {
 	}
 	return props["ActiveState"]
 }
+
+// RestartServe restarts the serve service, e.g. after an upgrade.
+func RestartServe() error { return systemctl("restart", ServeUnit) }

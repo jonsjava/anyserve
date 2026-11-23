@@ -1,0 +1,62 @@
+# Publishes a release when a version tag (v1.2.3) is pushed:
+# 1. Builds Anyserve for every platform (make release).
+# 2. Signs the checksums with the release key, checking it against the
+#    public key built into Anyserve (tools/relsign).
+# 3. Creates the GitHub release with the binaries, checksums, signature and
+#    install.sh.
+#
+# The key lives in the "release" environment as ANYSERVE_RELEASE_KEY; limit
+# that environment to tags matching v*.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write # to create the release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test -short ./...
+
+      - name: Build
+        run: make release VERSION="$GITHUB_REF_NAME"
+
+      - name: Sign
+        env:
+          ANYSERVE_RELEASE_KEY: ${{ secrets.ANYSERVE_RELEASE_KEY }}
+        run: |
+          if [ -z "$ANYSERVE_RELEASE_KEY" ]; then
+            echo "::error::The release environment has no ANYSERVE_RELEASE_KEY secret."
+            exit 1
+          fi
+          go run ./tools/relsign "dist/SHA256SUMS-$GITHUB_REF_NAME"
+          cp scripts/install.sh dist/install.sh
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            dist/anyserve-"$GITHUB_REF_NAME"-* \
+            "dist/SHA256SUMS-$GITHUB_REF_NAME" "dist/SHA256SUMS-$GITHUB_REF_NAME.sig" \
+            dist/install.sh
