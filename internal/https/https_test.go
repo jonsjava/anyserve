@@ -8,7 +8,7 @@ import (
 var sites = []Site{{Domain: "vault.example.com", Port: 8222, Instance: "vault"}, {Domain: "chat.example.com", Port: 8090, Instance: "harmony"}}
 
 func TestCaddyfile(t *testing.T) {
-	c := Caddyfile("ops@example.com", sites)
+	c := Caddyfile("ops@example.com", sites, nil)
 	for _, want := range []string{"admin unix//config/admin.sock", "email ops@example.com", "vault.example.com {\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:8222\n}", "chat.example.com {"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("Caddyfile lacks %q:\n%s", want, c)
@@ -17,7 +17,7 @@ func TestCaddyfile(t *testing.T) {
 	if strings.Index(c, "chat.") > strings.Index(c, "vault.") {
 		t.Error("sites aren't sorted")
 	}
-	if strings.Contains(Caddyfile("", nil), "email") {
+	if strings.Contains(Caddyfile("", nil, nil), "email") {
 		t.Error("empty email written")
 	}
 }
@@ -54,10 +54,59 @@ func TestValidDomain(t *testing.T) {
 }
 
 func TestCaddyCompose(t *testing.T) {
-	c := CaddyCompose(1001, 1001)
+	c := CaddyCompose(1001, 1001, CaddyImage)
 	for _, want := range []string{CaddyImage, "network_mode: host", `user: "1001:1001"`, "cap_drop: [ALL]", "cap_add: [NET_BIND_SERVICE]", "read_only: true"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("compose lacks %q", want)
 		}
+	}
+}
+
+func TestRouter(t *testing.T) {
+	b, err := RouterRoutes(map[string]int{"b.example.com": 25566, "a.example.com": 25567})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"mappings\": {\n    \"a.example.com\": \"127.0.0.1:25567\",\n    \"b.example.com\": \"127.0.0.1:25566\"\n  }\n}\n"
+	if string(b) != want {
+		t.Errorf("routes:\n%s", b)
+	}
+	c := RouterCompose(1000, 1000, 25565)
+	for _, s := range []string{RouterImage, `user: "1000:1000"`, "read_only: true", "cap_drop: [ALL]", `"-port", "25565"`, "network_mode: host"} {
+		if !strings.Contains(c, s) {
+			t.Errorf("compose lacks %q", s)
+		}
+	}
+}
+
+func TestRouterDropped(t *testing.T) {
+	before := map[string]string{"a.example.com": "127.0.0.1:25566"}
+	if dropped(before, map[string]int{"a.example.com": 25566, "b.example.com": 25567}) {
+		t.Error("an added route needs no restart")
+	}
+	if !dropped(before, map[string]int{"b.example.com": 25567}) {
+		t.Error("a removed route needs a restart")
+	}
+	if !dropped(before, map[string]int{"a.example.com": 25570}) {
+		t.Error("a moved route needs a restart")
+	}
+}
+
+func TestCaddyfilePassthrough(t *testing.T) {
+	pt := []Site{{Domain: "vpn.example.com", Port: 8443, Instance: "vpn"}}
+	c := Caddyfile("", nil, pt)
+	for _, want := range []string{"servers :443 {", "layer4 {", "@p0 tls sni vpn.example.com", "proxy 127.0.0.1:8443", "\t\t\ttls\n", ":443 {"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("Caddyfile lacks %q:\n%s", want, c)
+		}
+	}
+	if strings.Contains(Caddyfile("", sites, pt), ":443 {\n\ttls internal") {
+		t.Error("the placeholder site is only for when no app has a domain")
+	}
+	if strings.Contains(Caddyfile("", sites, nil), "layer4") {
+		t.Error("layer4 without passthrough servers")
+	}
+	if !strings.HasPrefix(CaddyL4Image(), "anyserve-caddy-l4:") {
+		t.Error(CaddyL4Image())
 	}
 }

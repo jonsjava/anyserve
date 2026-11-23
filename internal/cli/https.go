@@ -111,7 +111,7 @@ The proxy is one of:
 				if err != nil {
 					return err
 				}
-				return a.SyncHTTPS()
+				return a.SyncDomains()
 			},
 		},
 	)

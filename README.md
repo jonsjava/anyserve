@@ -8,9 +8,8 @@ arguments for a guided install, or script everything with flags.
 
 > **Status: early development.** Linux with systemd user services works end
 > to end, and the Docker target runs container stacks such as Lemmy. The
-> Windows-service, launchd and Kubernetes targets, and native servers inside
-> containers, are planned. See [PLAN.md](PLAN.md) for the roadmap and what
-> has been tested.
+> Windows-service, launchd and Kubernetes targets are planned; native
+> servers can already run inside containers (`--isolate`).
 
 ## Install
 
@@ -121,8 +120,7 @@ Apps that share your files take a folder setting, e.g.
 `--set media_folder=~/Videos`. Anyserve refuses system folders, your whole home
 folder and folders holding keys (such as `~/.ssh`).
 
-How far each one has been tested is recorded in [PLAN.md](PLAN.md). Each
-service's quirks are noted in its definition and shown by `anyserve info`.
+Each service's quirks are noted in its definition and shown by `anyserve info`.
 
 ## Commands
 
@@ -203,6 +201,34 @@ reach it.
 Already run a proxy? `anyserve https use nginx` or `anyserve https use traefik`
 writes a config file for it instead (`anyserve https status` shows where) and
 keeps it up to date as domains change. `anyserve https use none` turns domains off.
+
+### Domains for games and other servers
+
+Any instance can have a domain; what it does depends on how the server talks:
+
+- **Minecraft (Java):** every server with a domain shares the standard port.
+  Players type `play.example.com` or `creative.example.com` and Anyserve's
+  router (mc-router, pinned, running as your user with no privileges) sends them
+  to the right server. Each server moves to a port of its own on this machine
+  automatically; only the router's port (25565, or `anyserve router port <n>`)
+  needs forwarding. `anyserve router` lists the routes.
+- **Servers that do their own TLS** (definitions mark the port `routing: tls`):
+  they share port 443 with the apps. Caddy reads the name in the TLS handshake
+  and passes the connection through without decrypting it. Anyserve builds this
+  Caddy (built from source with caddy-l4, pinned) on the first such domain; it needs the Caddy
+  provider.
+- **Everything else** (most games, especially UDP ones) can't be routed by name,
+  so the domain is just a DNS name for this machine and its ports still need
+  forwarding.
+
+`anyserve dns <name>` prints the records to create: an A/AAAA record (this
+machine's public addresses, read locally, or a placeholder behind NAT) and SRV
+records for games that look them up, so players can leave the port off.
+
+```bash
+anyserve install minecraft --name survival --domain play.example.com
+anyserve dns survival
+```
 
 ## Remote access
 

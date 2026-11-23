@@ -6,6 +6,8 @@ package https
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -56,17 +58,77 @@ func sorted(sites []Site) []Site {
 
 // Caddyfile renders the managed Caddy's config. The admin API is on a
 // unix socket in Caddy's config folder, so it doesn't take a port.
-func Caddyfile(email string, sites []Site) string {
+//
+// passthrough lists servers that do their own TLS: connections to their
+// domains on 443 are passed through untouched, chosen by the name in the
+// TLS handshake (SNI), which needs Caddy built with caddy-l4.
+func Caddyfile(email string, sites, passthrough []Site) string {
 	var b strings.Builder
 	b.WriteString("# Managed by Anyserve (`anyserve https`). Changes are overwritten.\n{\n\tadmin unix//config/admin.sock\n")
 	if email != "" {
 		fmt.Fprintf(&b, "\temail %s\n", email)
 	}
+	if len(passthrough) > 0 && len(sites) == 0 {
+		// The placeholder site below uses Caddy's own CA; don't try to
+		// add it to the system's trust store.
+		b.WriteString("\tskip_install_trust\n")
+	}
+	if len(passthrough) > 0 {
+		b.WriteString("\tservers :443 {\n\t\tlistener_wrappers {\n\t\t\tlayer4 {\n")
+		for i, s := range sorted(passthrough) {
+			fmt.Fprintf(&b, "\t\t\t\t# %s\n\t\t\t\t@p%d tls sni %s\n\t\t\t\troute @p%d {\n\t\t\t\t\tproxy 127.0.0.1:%d\n\t\t\t\t}\n", s.Instance, i, s.Domain, i, s.Port)
+		}
+		b.WriteString("\t\t\t}\n\t\t\ttls\n\t\t}\n\t}\n")
+	}
 	b.WriteString("}\n")
 	for _, s := range sorted(sites) {
 		fmt.Fprintf(&b, "\n# %s\n%s {\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:%d\n}\n", s.Instance, s.Domain, s.Port)
 	}
+	if len(passthrough) > 0 && len(sites) == 0 {
+		// Caddy only listens on 443 for a site there; this one answers
+		// anything the passthrough routes don't match.
+		b.WriteString("\n# Keeps port 443 open for the servers above.\n:443 {\n\ttls internal\n\trespond 404\n}\n")
+	}
 	return b.String()
+}
+
+// CaddyL4Dockerfile builds Caddy with the caddy-l4 plugin, for passing TLS
+// through by name. Anyserve builds it on this machine only when a server
+// needs it, from source with a pinned Go image, xcaddy, Caddy and plugin
+// (both Apache-2.0), onto a pinned Alpine; no prebuilt Caddy image is used.
+const CaddyL4Dockerfile = `FROM golang:1.26.9-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS build
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
+RUN xcaddy build v2.11.7 --with github.com/mholt/caddy-l4@v0.1.2 --output /caddy
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+RUN apk add --no-cache ca-certificates libcap mailcap
+COPY --from=build /caddy /usr/bin/caddy
+RUN setcap cap_net_bind_service=+ep /usr/bin/caddy
+`
+
+// CaddyL4Image is the local tag for CaddyL4Dockerfile's image; the tag
+// changes whenever the Dockerfile does.
+func CaddyL4Image() string {
+	sum := sha256.Sum256([]byte(CaddyL4Dockerfile))
+	return "anyserve-caddy-l4:" + hex.EncodeToString(sum[:6])
+}
+
+// HaveCaddyL4 reports whether the passthrough Caddy is already built.
+func HaveCaddyL4() bool {
+	return exec.Command("docker", "image", "inspect", CaddyL4Image()).Run() == nil
+}
+
+func ensureCaddyL4() error {
+	img := CaddyL4Image()
+	if HaveCaddyL4() {
+		return nil
+	}
+	cmd := exec.Command("docker", "build", "-t", img, "-")
+	cmd.Stdin = strings.NewReader(CaddyL4Dockerfile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("building Caddy with TLS passthrough: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // NginxConf renders server blocks for an nginx that the user runs. TLS
@@ -138,7 +200,7 @@ func TraefikConf(sites []Site) string {
 // as the user with every capability dropped except binding low ports
 // (which the image's caddy binary carries as a file capability, so
 // no-new-privileges can't be set for this one container).
-func CaddyCompose(uid, gid int) string {
+func CaddyCompose(uid, gid int, image string) string {
 	return fmt.Sprintf(`# Managed by Anyserve (`+"`anyserve https`"+`).
 name: anyserve-https
 services:
@@ -160,7 +222,7 @@ services:
       - ./config:/config
     tmpfs:
       - /tmp
-`, CaddyImage, uid, gid)
+`, image, uid, gid)
 }
 
 // Managed runs Anyserve's own Caddy from a folder.
@@ -179,22 +241,35 @@ func (m Managed) compose(args ...string) error {
 
 // Apply writes the config and starts or reloads Caddy; with no sites it
 // stops Caddy (keeping its certificates).
-func (m Managed) Apply(email string, sites []Site) error {
+func (m Managed) Apply(email string, sites, passthrough []Site) error {
 	for _, d := range []string{m.Dir, filepath.Join(m.Dir, "data"), filepath.Join(m.Dir, "config")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(m.Dir, "compose.yaml"), []byte(CaddyCompose(os.Getuid(), os.Getgid())), 0o600); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(m.Dir, "Caddyfile"), []byte(Caddyfile(email, sites)), 0o644); err != nil {
-		return err
-	}
-	if len(sites) == 0 {
+	if len(sites) == 0 && len(passthrough) == 0 {
+		if err := os.WriteFile(filepath.Join(m.Dir, "Caddyfile"), []byte(Caddyfile(email, nil, nil)), 0o644); err != nil {
+			return err
+		}
 		return m.Stop()
 	}
-	if m.Running() {
+	image := CaddyImage
+	if len(passthrough) > 0 {
+		if err := ensureCaddyL4(); err != nil {
+			return err
+		}
+		image = CaddyL4Image()
+	}
+	compose := filepath.Join(m.Dir, "compose.yaml")
+	want := CaddyCompose(os.Getuid(), os.Getgid(), image)
+	old, _ := os.ReadFile(compose)
+	if err := os.WriteFile(compose, []byte(want), 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(m.Dir, "Caddyfile"), []byte(Caddyfile(email, sites, passthrough)), 0o644); err != nil {
+		return err
+	}
+	if string(old) == want && m.Running() {
 		// Reload in place: no dropped connections, and a bad config is
 		// refused while the old one keeps serving.
 		cmd := exec.Command("docker", "compose", "-f", filepath.Join(m.Dir, "compose.yaml"), "exec", "-T", "caddy",

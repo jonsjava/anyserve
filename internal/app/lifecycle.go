@@ -103,7 +103,8 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 		}
 	}
 	if req.Domain != "" {
-		if err := a.checkDomain(&instance.Instance{Name: req.Name}, e.Def, req.Domain, req.DomainPort); err != nil {
+		a.moveOffRouter(req.Name, e.Def, req.DomainPort, req.Ports, ports)
+		if err := a.checkDomain(&instance.Instance{Name: req.Name}, e.Def, req.Domain, req.DomainPort, ports); err != nil {
 			return nil, fmt.Errorf("--domain: %w", err)
 		}
 	}
@@ -253,7 +254,7 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 	}
 	a.Log("Installed. Server files are in %s", in.ServerDir)
 	if in.Domain != "" {
-		if err := a.SyncHTTPS(); err != nil {
+		if err := a.SyncDomains(); err != nil {
 			a.Log("HTTPS for %s isn't set up: %v", in.Domain, err)
 		} else {
 			a.Log("https://%s will reach %s once the domain's DNS points here", in.Domain, in.Name)
@@ -955,7 +956,7 @@ func (a *App) Reconfigure(name string, c Changes) error {
 	}
 	in.Settings, in.Ports = merged, resolvedPorts
 	domainChanged := false
-	if c.Domain != nil || c.DomainPort != nil {
+	if c.Domain != nil || c.DomainPort != nil || (in.Domain != "" && len(ports) > 0) {
 		dom, dport := in.Domain, in.DomainPort
 		if c.Domain != nil {
 			dom = strings.ToLower(strings.TrimSpace(*c.Domain))
@@ -963,7 +964,7 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		if c.DomainPort != nil {
 			dport = *c.DomainPort
 		}
-		if err := a.checkDomain(in, d, dom, dport); err != nil {
+		if err := a.checkDomain(in, d, dom, dport, resolvedPorts); err != nil {
 			return err
 		}
 		in.Domain, in.DomainPort = dom, dport
@@ -998,7 +999,7 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		}
 	}
 	if domainChanged || len(ports) > 0 {
-		if err := a.SyncHTTPS(); err != nil {
+		if err := a.SyncDomains(); err != nil {
 			return fmt.Errorf("saved, but the HTTPS proxy wasn't updated: %w", err)
 		}
 		if domainChanged && len(settings) == 0 && len(ports) == 0 && c.Isolate == nil && len(c.Expose) == 0 && len(c.Unexpose) == 0 {
@@ -1032,7 +1033,7 @@ func (a *App) Remove(name string) error {
 		a.Log("Server files in %s were left in place", in.ServerDir)
 	}
 	if in.Domain != "" {
-		if err := a.SyncHTTPS(); err != nil {
+		if err := a.SyncDomains(); err != nil {
 			a.Log("Couldn't take %s off the HTTPS proxy: %v", in.Domain, err)
 		}
 	}
@@ -1049,19 +1050,54 @@ func (a *App) PortReport(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return FormatPorts(d, ports), nil
+	return FormatPortsShared(d, ports, a.SharedPorts(d, in.Domain, in.DomainPort)), nil
+}
+
+// SharedPorts maps each of an instance's ports that players reach through
+// a shared listener (the Minecraft router, or Caddy on 443) to that
+// listener's port, which is then the one to forward.
+func (a *App) SharedPorts(d *spec.Definition, domain, domainPort string) map[string]int {
+	if domain == "" {
+		return nil
+	}
+	t, err := TargetFor(d, domainPort)
+	if err != nil {
+		return nil
+	}
+	switch t.Kind {
+	case spec.RouteMinecraft:
+		return map[string]int{t.Port.Name: a.routerPort()}
+	case spec.RouteTLS:
+		return map[string]int{t.Port.Name: 443}
+	}
+	return nil
 }
 
 // FormatPorts explains which ports to forward and which to keep private.
 func FormatPorts(d *spec.Definition, ports map[string]int) string {
+	return FormatPortsShared(d, ports, nil)
+}
+
+// FormatPortsShared is FormatPorts for an instance whose ports in shared
+// are reached through a shared listener on the given port.
+func FormatPortsShared(d *spec.Definition, ports map[string]int, shared map[string]int) string {
 	var b strings.Builder
 	var public []string
+	seen := map[string]bool{}
 	for _, p := range d.Ports {
 		vis := "keep private"
 		if p.Public {
 			vis = "forward for players"
+			n := ports[p.Name]
+			if s, ok := shared[p.Name]; ok {
+				vis = fmt.Sprintf("players use %d", s)
+				n = s
+			}
 			for _, proto := range protos(p.Protocol) {
-				public = append(public, fmt.Sprintf("%d/%s", ports[p.Name], proto))
+				if e := fmt.Sprintf("%d/%s", n, proto); !seen[e] {
+					seen[e] = true
+					public = append(public, e)
+				}
 			}
 		}
 		fmt.Fprintf(&b, "  %-6s %5d/%-4s %-20s %s\n", p.Name, ports[p.Name], p.Protocol, vis, p.Description)
