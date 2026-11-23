@@ -9,9 +9,14 @@
 <body>
 <header class="top">
   <div class="brand"><span class="logo" aria-hidden="true">▣</span> Anyserve <span id="host" class="muted"></span></div>
+  <nav id="adminnav" class="topnav" hidden>
+    <button data-view="servers" aria-current="true">Servers</button>
+    <button data-view="users">Users</button>
+    <button data-view="new" class="primary">New server</button>
+  </nav>
   <div id="who" class="muted"></div>
 </header>
-<main class="layout">
+<main class="layout" id="view-servers">
   <section class="list" aria-label="Instances">
     <div class="list-head"><h2>Instances</h2><span id="count" class="muted"></span></div>
     <div id="instances" role="list"></div>
@@ -29,6 +34,7 @@
         <button data-act="restart">Restart</button>
         <button data-act="backup">Back up</button>
         <button data-act="update">Update</button>
+        <button id="d-remove" class="danger" hidden>Remove</button>
       </div>
     </div>
     <div id="d-state" class="state-line"></div>
@@ -61,10 +67,22 @@
       <div class="row wrap">
         <nav id="crumbs" class="crumbs" aria-label="Folder"></nav>
         <span class="spacer"></span>
+        <button id="f-newfile">New file</button>
         <button id="f-mkdir">New folder</button>
         <label class="button">Upload<input type="file" id="f-upload" multiple hidden></label>
       </div>
-      <table class="grid files"><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="f-list"></tbody></table>
+      <div id="f-selbar" class="row wrap selbar" hidden>
+        <span id="f-selcount"></span>
+        <button id="f-archive">Archive</button>
+        <button id="f-delsel" class="danger">Delete</button>
+        <button id="f-clearsel">Clear</button>
+      </div>
+      <table class="grid files"><thead><tr><th class="chk"><input type="checkbox" id="f-all" aria-label="Select all"></th><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="f-list"></tbody></table>
+      <div id="editor" class="editor" hidden>
+        <div class="row"><strong id="ed-path"></strong><span class="spacer"></span><span id="ed-state" class="muted small"></span>
+          <button id="ed-save" class="primary">Save</button><button id="ed-close">Close</button></div>
+        <textarea id="ed-text" spellcheck="false" aria-label="File contents"></textarea>
+      </div>
     </div>
     <div class="panel" data-panel="backups" hidden>
       <table class="grid"><thead><tr><th>Backup</th><th>Created</th><th>Size</th></tr></thead><tbody id="b-list"></tbody></table>
@@ -74,6 +92,46 @@
   </section>
   <section id="welcome" class="detail welcome">
     <p class="muted">Choose an instance.</p>
+  </section>
+</main>
+
+<main class="page" id="view-users" hidden>
+  <section class="detail">
+    <h2>Users</h2>
+    <p class="muted small">Users connect with <code>anyserve remote add</code> using the SSH key you add here. They see only the servers you give them. Admins see everything, but only when their browser presents the client certificate you issue them.</p>
+    <table class="grid"><thead><tr><th>User</th><th>Role</th><th>Servers</th><th>Keys</th><th></th></tr></thead><tbody id="u-list"></tbody></table>
+    <h3>Add a user</h3>
+    <form id="u-form" class="stack">
+      <label>Name <input id="u-name" required pattern="[a-z][a-z0-9_-]{0,31}" placeholder="alice" autocomplete="off"></label>
+      <label>SSH public key <textarea id="u-key" required rows="2" placeholder="ssh-ed25519 AAAA… alice@laptop (the line from their ~/.ssh/id_ed25519.pub)"></textarea></label>
+      <label class="check"><input type="checkbox" id="u-admin"> Admin (can manage every server and user)</label>
+      <div><button type="submit">Add user</button></div>
+    </form>
+    <div id="u-cert" class="notice" hidden></div>
+  </section>
+</main>
+
+<main class="page" id="view-new" hidden>
+  <section class="detail">
+    <h2>New server</h2>
+    <div id="n-pick">
+      <input id="n-search" type="search" placeholder="Search games and apps" aria-label="Search games and apps" autocomplete="off">
+      <div id="n-catalog" class="catalog"></div>
+    </div>
+    <form id="n-form" class="stack" hidden>
+      <div class="row"><h3 id="n-title"></h3><span class="spacer"></span><button type="button" id="n-back">Choose another</button></div>
+      <p id="n-desc" class="muted"></p>
+      <label>Name <input id="n-name" required pattern="[a-z0-9][a-z0-9-]{0,62}" autocomplete="off"></label>
+      <div id="n-settings" class="stack"></div>
+      <h3>Ports</h3>
+      <p class="muted small">Free ports are filled in for you; change them only if you need to.</p>
+      <div id="n-ports" class="ports"></div>
+      <label>Domain (optional) <input id="n-domain" placeholder="play.example.com" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" id="n-start" checked> Start it after installing</label>
+      <div id="n-notes" class="notice" hidden></div>
+      <div class="row"><button type="submit" id="n-install">Install</button></div>
+      <pre id="n-log" class="out" hidden></pre>
+    </form>
   </section>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>

@@ -259,8 +259,14 @@ sftp -P 7022 alice@box.example.com               # the files of alice's instance
 - **Users** see and manage only the instances granted to them: start, stop, restart, update,
   back up, logs, console and files.
 - **Admins** see everything, but only in the web UI with their browser client certificate,
-  which is checked on the host. Without it they're ordinary users. Users, installs and removals
-  are managed only on the host, with the CLI.
+  which is checked on the host. Without it they're ordinary users. With it, the web UI also
+  manages users (add, make admin, give servers, add keys, issue certificates, remove) and
+  servers (install from the catalog, with free ports filled in, and remove).
+- **The file manager** edits text files in the browser and uploads, downloads, renames, deletes,
+  archives (.zip or .tar.gz) and unpacks archives. Everything stays inside the instance's folder:
+  links can't lead out of it, and unpacking skips links and stops at 10 GiB.
+- **Installs pick free ports:** a default port that another instance or program already uses moves
+  to the next free number, in the CLI and the web UI alike.
 - **The host's web CA only covers localhost addresses**, so trusting it in your browser can't
   vouch for any real website.
 - **On the host itself**, `anyserve proxy` (no host) opens the same UI with full access.

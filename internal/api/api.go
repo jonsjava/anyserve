@@ -53,8 +53,12 @@ type Server struct {
 	NewApp func(out io.Writer) (*app.App, error)
 	// Audit receives one line per change (nil disables auditing).
 	Audit io.Writer
+	// IssueCert issues a browser client certificate for an admin (nil:
+	// not offered).
+	IssueCert func(a *app.App, user string) (*IssuedCert, error)
 
 	locks   sync.Map // instance name → *sync.Mutex
+	jobs    sync.Map // job id → *Job
 	auditMu sync.Mutex
 }
 
@@ -76,6 +80,18 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("DELETE /v1/instances/{name}/files", s.instance(s.filesDelete))
 	m.HandleFunc("POST /v1/instances/{name}/files/mkdir", s.instance(s.filesMkdir))
 	m.HandleFunc("POST /v1/instances/{name}/files/rename", s.instance(s.filesRename))
+	m.HandleFunc("POST /v1/instances/{name}/files/archive", s.instance(s.filesArchive))
+	m.HandleFunc("POST /v1/instances/{name}/files/extract", s.instance(s.filesExtract))
+	m.HandleFunc("GET /v1/catalog", s.admin(s.catalog))
+	m.HandleFunc("GET /v1/catalog/{registry}/{id}", s.admin(s.catalogItem))
+	m.HandleFunc("POST /v1/instances", s.admin(s.install))
+	m.HandleFunc("DELETE /v1/instances/{name}", s.instance(s.adminOnly(s.locked(s.remove))))
+	m.HandleFunc("GET /v1/jobs/{id}", s.admin(s.job))
+	m.HandleFunc("GET /v1/users", s.admin(s.usersList))
+	m.HandleFunc("POST /v1/users", s.admin(s.usersCreate))
+	m.HandleFunc("PATCH /v1/users/{user}", s.admin(s.usersChange))
+	m.HandleFunc("DELETE /v1/users/{user}", s.admin(s.usersDelete))
+	m.HandleFunc("POST /v1/users/{user}/cert", s.admin(s.usersCert))
 	return s.audited(m)
 }
 
