@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jonsjava/anyserve/internal/version"
 	"io"
 	"os"
 	"path/filepath"
@@ -98,10 +99,23 @@ type Entry struct {
 // falls back to the snapshot built into the binary. Registries that can't
 // be loaded are reported as warnings, not errors.
 func (a *App) Catalog() ([]Entry, []string, error) {
+	entries, warnings, _, err := a.catalog()
+	return entries, warnings, err
+}
+
+// skippedEntry is a definition a registry offers that this version of
+// Anyserve can't use.
+type skippedEntry struct {
+	Registry string
+	registry.Skipped
+}
+
+func (a *App) catalog() ([]Entry, []string, []skippedEntry, error) {
 	srcs, err := a.Sources()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	var skipped []skippedEntry
 	cache := registry.Cache{Dir: a.Dirs.Registries()}
 	var out []Entry
 	var warnings []string
@@ -124,10 +138,35 @@ func (a *App) Catalog() ([]Entry, []string, error) {
 		for _, d := range ix.Services {
 			out = append(out, Entry{Registry: src.Name, Def: d})
 		}
+		if len(ix.Skipped) > 0 {
+			ids := make([]string, len(ix.Skipped))
+			for i, s := range ix.Skipped {
+				ids[i] = s.ID
+				skipped = append(skipped, skippedEntry{Registry: src.Name, Skipped: s})
+			}
+			what := fmt.Sprintf("%d services", len(ids))
+			if len(ids) == 1 {
+				what = "1 service"
+			}
+			warnings = append(warnings, fmt.Sprintf("registry %s has %s this version of Anyserve (%s) can't use: %s. %s", src.Name, what, version.Current(), strings.Join(ids, ", "), UpdateHint))
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Def.ID < out[j].Def.ID })
-	return out, warnings, nil
+	return out, warnings, skipped, nil
 }
+
+// NeedsNewerError reports a service the registry offers that this version
+// of Anyserve can't use.
+type NeedsNewerError struct {
+	ID, Registry, Reason string
+}
+
+func (e *NeedsNewerError) Error() string {
+	return fmt.Sprintf("%s (registry %s) %s. Update Anyserve to install it: go install github.com/jonsjava/anyserve/cmd/anyserve@latest", e.ID, e.Registry, e.Reason)
+}
+
+// UpdateHint tells people how to get a newer Anyserve.
+const UpdateHint = "Update Anyserve to get them: go install github.com/jonsjava/anyserve/cmd/anyserve@latest"
 
 // Find looks a service up by id, optionally as "registry/id".
 func (a *App) Find(ref string) (Entry, error) {
@@ -135,7 +174,7 @@ func (a *App) Find(ref string) (Entry, error) {
 	if i := strings.IndexByte(ref, '/'); i >= 0 {
 		reg, id = ref[:i], ref[i+1:]
 	}
-	entries, _, err := a.Catalog()
+	entries, _, skipped, err := a.catalog()
 	if err != nil {
 		return Entry{}, err
 	}
@@ -147,6 +186,11 @@ func (a *App) Find(ref string) (Entry, error) {
 	}
 	switch len(matches) {
 	case 0:
+		for _, s := range skipped {
+			if s.ID == id && (reg == "" || s.Registry == reg) {
+				return Entry{}, &NeedsNewerError{ID: id, Registry: s.Registry, Reason: s.Reason}
+			}
+		}
 		return Entry{}, fmt.Errorf("no service %q in any registry (see `anyserve available`)", ref)
 	case 1:
 		return matches[0], nil
@@ -184,7 +228,11 @@ func (a *App) Refresh(ctx context.Context) error {
 			continue
 		}
 		ix, _ := registry.ParseIndex(index)
-		a.Log("Registry %s: %d services", src.Name, len(ix.Services))
+		if n := len(ix.Skipped); n > 0 {
+			a.Log("Registry %s: %d services, and %d that need a newer Anyserve", src.Name, len(ix.Services), n)
+		} else {
+			a.Log("Registry %s: %d services", src.Name, len(ix.Services))
+		}
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "\n"))

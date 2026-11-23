@@ -1,6 +1,6 @@
 GO      ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/jonsjava/anyserve/internal/cli.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/jonsjava/anyserve/internal/version.Version=$(VERSION)
 KEY     ?= $(HOME)/.config/anyserve-dev/registry-signing.key
 REGISTRY_REPO ?= ../anyserve-registry
 

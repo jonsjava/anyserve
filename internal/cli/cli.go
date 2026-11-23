@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jonsjava/anyserve/internal/version"
 	"io"
 	"net"
 	"os"
@@ -27,9 +28,6 @@ import (
 	"github.com/jonsjava/anyserve/internal/spec"
 	"github.com/jonsjava/anyserve/internal/target"
 )
-
-// Version is set at build time with -ldflags "-X ...cli.Version=v1.2.3".
-var Version = "dev"
 
 // Execute runs the CLI and returns the process exit code.
 func Execute() int {
@@ -1034,7 +1032,7 @@ func versionCmd() *cobra.Command {
 		Short: "Show the Anyserve version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "anyserve %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
+			fmt.Fprintf(cmd.OutOrStdout(), "anyserve %s (%s/%s)\n", version.Current(), runtime.GOOS, runtime.GOARCH)
 		},
 	}
 }

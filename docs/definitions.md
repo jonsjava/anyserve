@@ -38,6 +38,7 @@ There are two kinds of definition:
 | `description` | yes | One sentence. |
 | `homepage` | no | The game's or project's site. |
 | `version` | yes | The definition's own version. Bump it whenever installed instances should pick up a change; `anyserve update` applies it. |
+| `requires` | no | The oldest Anyserve release that can install this definition, like `0.2.0`. See [Compatibility](#compatibility). |
 | `kind` | no | `server` (default) or `stack`. |
 | `platforms` | servers | Operating systems with a native build: `linux`, `windows`, `darwin`. Stacks leave this out. |
 | `install` | servers | Where the software comes from. |
@@ -495,6 +496,22 @@ any user, such as `nginxinc/nginx-unprivileged` instead of `nginx`.
 `console.exec` gives a stack a console. `anyserve console <name>` opens it
 interactively, and `anyserve console <name> '<input>'` passes one input on
 stdin (for example, one SQL statement to `psql`).
+
+## Compatibility
+
+People run many Anyserve versions against the same registry, so every
+version reads each definition on its own. A definition is skipped, with a
+message telling people to update Anyserve, when it:
+
+- uses a field that version doesn't know, which is any feature added after
+  it was built;
+- uses a value it doesn't accept, such as a new setting type;
+- names a newer release in `requires`.
+
+Everything else in the registry still loads. So most definitions need nothing:
+using a new feature is enough to keep older versions away. Set `requires` only
+when a definition depends on a change older versions would read but get
+wrong, such as a fix to how an existing field behaves.
 
 ## linuxgsm
 

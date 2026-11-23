@@ -728,7 +728,14 @@ func (a *App) Update(ctx context.Context, name string, warn time.Duration, steam
 	if err != nil {
 		return err
 	}
-	if e, err := a.Find(in.Registry + "/" + in.Service); err == nil && e.Def.Version != in.DefinitionVersion {
+	e, err := a.Find(in.Registry + "/" + in.Service)
+	var newer *NeedsNewerError
+	if errors.As(err, &newer) {
+		// The registry's newer definition needs a newer Anyserve; keep
+		// updating the server files with the one installed.
+		a.Log("Keeping definition %s: %v", in.DefinitionVersion, err)
+	}
+	if err == nil && e.Def.Version != in.DefinitionVersion {
 		a.Log("Applying definition %s (was %s)", e.Def.Version, in.DefinitionVersion)
 		// New settings in the definition get their defaults.
 		if _, err := e.Def.ResolveSettings(knownSettings(e.Def, in.Settings)); err != nil {
