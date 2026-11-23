@@ -55,6 +55,8 @@ type Plan struct {
 	Settings map[string]any
 	Ports    map[string]int
 	Warnings []string
+	// Moved says which default ports were taken and what they moved to.
+	Moved []string
 }
 
 // PlanInstall validates a request without changing anything.
@@ -111,6 +113,7 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 	if err := checkExpose(e.Def, req.Expose); err != nil {
 		return nil, err
 	}
+	p.Moved = a.pickFreePorts(req.Name, e.Def, req.Ports, ports)
 	conflicts, warnings := a.checkPorts(req.Name, e.Def, ports)
 	if len(conflicts) > 0 {
 		return nil, errors.New(strings.Join(conflicts, "\n") + "\nChoose other ports with --port name=number")

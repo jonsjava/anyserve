@@ -329,6 +329,9 @@ func printPlan(cmd *cobra.Command, a *app.App, p *app.Plan) {
 	}
 	fmt.Fprintln(out, "Ports:")
 	fmt.Fprint(out, app.FormatPortsShared(d, p.Ports, a.SharedPorts(d, p.Req.Domain, p.Req.DomainPort)))
+	for _, m := range p.Moved {
+		fmt.Fprintf(out, "Note: %s\n", m)
+	}
 	for _, w := range p.Warnings {
 		fmt.Fprintf(out, "Warning: %s\n", w)
 	}
