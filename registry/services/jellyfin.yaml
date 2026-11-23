@@ -1,0 +1,56 @@
+schema: 1
+id: jellyfin
+name: Jellyfin
+description: A free media server for your films, TV, music and photos, with apps for TVs, phones and browsers.
+homepage: https://jellyfin.org
+version: "12.4-1"
+kind: stack
+
+settings:
+  - key: media_folder
+    prompt: Your media folder on this machine (e.g. ~/Videos)
+    description: Shared read-only at /media. Add libraries from its subfolders in the setup wizard.
+    type: folder
+    default: ~/Videos
+  - key: published_url
+    prompt: Address apps should use, if it differs from this machine's (optional)
+    type: string
+    optional: true
+
+ports:
+  - name: http
+    port: 8096
+    protocol: tcp
+    public: false
+    description: The web app, API and TV or phone app connections.
+
+stack:
+  services:
+    - name: jellyfin
+      image: jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+      env:
+        JELLYFIN_PublishedServerUrl: "{{.Settings.published_url}}"
+      volumes:
+        - { path: config, target: /config }
+        - { path: cache, target: /cache }
+        - { setting: media_folder, target: /media, read_only: true }
+      ports:
+        - { port: http, target: 8096 }
+      shm_mb: 256
+
+stop:
+  timeout_seconds: 60
+
+backup:
+  paths: [config]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Run the setup wizard on your first visit and add libraries from folders under /media.
+  - Hardware transcoding (GPU) isn't set up, because it needs device access that Anyserve stacks don't allow. Software transcoding works.
+  - TVs and phones need `--expose http` on your LAN. Automatic discovery on the LAN isn't available; enter the address by hand.
+  - Backups cover settings, users and watch history, not your media or the cache.

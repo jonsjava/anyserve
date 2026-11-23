@@ -3,7 +3,7 @@ id: lemmy
 name: Lemmy
 description: A federated link aggregator and forum (like Reddit, on the fediverse), as a stack of containers.
 homepage: https://join-lemmy.org
-version: "0.19.21-3"
+version: "0.19.21-4"
 kind: stack
 
 settings:
@@ -207,5 +207,5 @@ linuxgsm:
 
 notes:
   - Needs Docker with the Compose plugin.
-  - The site listens on 127.0.0.1 only. Put an HTTPS reverse proxy (Caddy, nginx, a tunnel) in front of it for your domain.
-  - The admin account is created on the first start; `anyserve info` doesn't show generated passwords, but they're in the instance's instance.json.
+  - The site listens on 127.0.0.1 only. Put an HTTPS reverse proxy (Caddy, nginx, a tunnel) in front of it for your domain, or open it to your network with `--expose http`.
+  - The admin account is created on the first start. `anyserve config <name> --show-secrets` shows its generated password.

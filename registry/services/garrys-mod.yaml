@@ -1,0 +1,129 @@
+schema: 1
+id: garrys-mod
+name: Garry's Mod
+description: Facepunch's physics sandbox, as a Source dedicated server.
+homepage: https://gmod.facepunch.com
+version: "1"
+platforms: [linux, windows]
+
+install:
+  steamcmd:
+    app_id: 4020
+    beta: x86-64
+
+steps:
+  - type: steam_sdk
+  - type: chmod_exec
+    path: srcds_run_x64
+    os: [linux]
+
+settings:
+  - key: hostname
+    prompt: Server name
+    type: string
+    default: Anyserve Garry's Mod
+  - key: gamemode
+    prompt: Game mode
+    type: string
+    default: sandbox
+  - key: map
+    prompt: Starting map
+    type: string
+    default: gm_flatgrass
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 16
+    min: 2
+    max: 128
+  - key: password
+    prompt: Server password (leave empty for none)
+    type: string
+    secret: true
+    optional: true
+  - key: gslt
+    prompt: Steam game server login token, to be listed publicly (optional)
+    description: Create one at https://steamcommunity.com/dev/managegameservers for app 4000.
+    type: string
+    secret: true
+    optional: true
+  - key: workshop_collection
+    prompt: Steam Workshop collection ID to download (optional)
+    type: string
+    optional: true
+  - key: rcon_password
+    prompt: RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 27015
+    protocol: both
+    public: true
+    description: Players connect here. RCON also uses this port over TCP.
+
+files:
+  - path: garrysmod/cfg/anyserve.cfg
+    overwrite: true
+    template: |
+      // Written by Anyserve. Use server.cfg for your own settings.
+      hostname {{json .Settings.hostname}}
+      sv_password {{json .Settings.password}}
+      rcon_password {{json .Settings.rcon_password}}
+
+run:
+  linux:
+    command: srcds_run_x64
+    args: &args
+      - -game
+      - garrysmod
+      - -console
+      - -norestart
+      - +ip
+      - 0.0.0.0
+      - -port
+      - "{{.Ports.game}}"
+      - +maxplayers
+      - "{{.Settings.max_players}}"
+      - +gamemode
+      - "{{.Settings.gamemode}}"
+      - +map
+      - "{{.Settings.map}}"
+      - +exec
+      - anyserve.cfg
+      - "{{if .Settings.gslt}}+sv_setsteamaccount{{end}}"
+      - "{{.Settings.gslt}}"
+      - "{{if .Settings.workshop_collection}}+host_workshop_collection{{end}}"
+      - "{{.Settings.workshop_collection}}"
+  windows:
+    command: srcds_win64.exe
+    args: *args
+
+stop:
+  command: quit
+  timeout_seconds: 30
+
+console:
+  say: "say {{.Message}}"
+  rcon:
+    protocol: source
+    port: game
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [garrysmod/cfg, garrysmod/data, garrysmod/addons, garrysmod/sv.db]
+
+container:
+  image: debian:bookworm-slim
+  packages: [ca-certificates, lib32gcc-s1, lib32stdc++6]
+
+linuxgsm:
+  status: upstream
+  name: gmodserver
+
+notes:
+  - The server buffers its output, so `anyserve logs` can lag behind until someone types in the console.
+  - Uses Garry's Mod's 64-bit server branch (x86-64), which most add-ons now support.
+  - Many maps and add-ons come from the Steam Workshop. Set workshop_collection, or add content to garrysmod/addons.

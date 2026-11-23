@@ -1,0 +1,39 @@
+schema: 1
+id: memos
+name: Memos
+description: A lightweight, self-hosted note-taking app for quick thoughts, in a timeline you can search and share.
+homepage: https://usememos.com
+version: "26.11.1-1"
+kind: stack
+
+ports:
+  - name: http
+    port: 5230
+    protocol: tcp
+    public: false
+    description: The web app and API.
+
+stack:
+  services:
+    - name: memos
+      image: neosmemo/memos:26.11.1@sha256:5dcd6e6b973a55b964f2fe2ccdaa33319463ab448a23404ebb5d2acbd19299ba
+      env:
+        MEMOS_MODE: prod
+        MEMOS_PORT: "5230"
+        MEMOS_DATA: /var/opt/memos
+      volumes:
+        - { path: data, target: /var/opt/memos }
+      ports:
+        - { port: http, target: 5230 }
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - The first account you create becomes the admin.
+  - To reach it from other computers on your network, add `--expose http`.

@@ -64,6 +64,9 @@ func fakeSource(t *testing.T, password string) string {
 							// A reply split over two packets.
 							send(id, 0, "hostname: test\n")
 							send(id, 0, "players: 0\n")
+						case "zero":
+							// Palworld replies with id 0, not the request's id.
+							send(0, 0, "zero id")
 						case "quiet":
 						default:
 							send(id, 0, "echo "+body)
@@ -88,6 +91,9 @@ func TestSource(t *testing.T) {
 	}
 	if got, err := c.Exec("say hi"); err != nil || got != "echo say hi" {
 		t.Errorf("say = %q, %v", got, err)
+	}
+	if got, err := c.Exec("zero"); err != nil || got != "zero id" {
+		t.Errorf("zero = %q, %v", got, err)
 	}
 	if got, err := c.Exec("quiet"); err != nil || got != "" {
 		t.Errorf("quiet = %q, %v", got, err)

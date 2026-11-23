@@ -1,0 +1,82 @@
+schema: 1
+id: mindustry
+name: Mindustry
+description: Anuken's open-source factory-building tower defence game, as a dedicated server.
+homepage: https://mindustrygame.github.io
+version: "160.8-1"
+platforms: [linux, windows, darwin]
+
+install:
+  downloads:
+    - url: https://github.com/Anuken/Mindustry/releases/download/v160.8/server-release.jar
+      sha256: faeaf247a8b622de940181a96cb21cb20692d3c3da4e8ac3f79cb4af5059aa6c
+      to: server-release.jar
+      always: true
+
+settings:
+  - key: server_name
+    prompt: Server name
+    type: string
+    default: Anyserve Mindustry
+  - key: description
+    prompt: Server description
+    type: string
+    default: Hosted with Anyserve
+  - key: mode
+    prompt: Game mode (used when a map is set)
+    type: choice
+    default: survival
+    choices:
+      - { value: survival, label: Survival }
+      - { value: attack, label: Attack }
+      - { value: pvp, label: PvP }
+      - { value: sandbox, label: Sandbox }
+  - key: map
+    prompt: Map name, with underscores for spaces (leave empty for a random survival map)
+    type: string
+    optional: true
+  - key: memory_mb
+    prompt: Memory for the server in MB
+    type: int
+    default: 1024
+    min: 256
+    max: 32768
+
+ports:
+  - name: game
+    port: 6567
+    protocol: both
+    public: true
+    description: Players connect here.
+
+run:
+  linux: &run
+    command: server-release.jar
+    via: [java]
+    via_args: ["-Xmx{{.Settings.memory_mb}}M", "-jar"]
+    # Mindustry runs its arguments as console commands, separated by commas.
+    args: ["config port {{.Ports.game}},config name {{.Settings.server_name}},config desc {{.Settings.description}},{{if .Settings.map}}host {{.Settings.map}} {{.Settings.mode}}{{else}}host{{end}}"]
+  windows: *run
+  darwin: *run
+
+stop:
+  command: exit
+  timeout_seconds: 30
+
+console:
+  say: "say {{.Message}}"
+
+backup:
+  paths: [config]
+
+container:
+  image: eclipse-temurin:21-jre
+
+linuxgsm:
+  status: upstream
+  name: mindustryserver
+
+notes:
+  - Needs Java 17 or newer.
+  - "With no map set, each start hosts a random map. Use the console's `host <map> <mode>` to pick one, and `save <slot>` / `load <slot>` to keep a game."
+  - Server names can't contain commas, because of how settings reach the server.

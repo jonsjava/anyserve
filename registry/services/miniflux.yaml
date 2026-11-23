@@ -1,0 +1,78 @@
+schema: 1
+id: miniflux
+name: Miniflux
+description: A minimalist, fast feed reader for RSS, Atom and JSON Feed, with a clean web UI and API.
+homepage: https://miniflux.app
+version: "2.3.5-1"
+kind: stack
+
+settings:
+  - key: base_url
+    prompt: Address people will use (e.g. https://rss.example.com)
+    type: string
+    default: http://localhost:8085
+  - key: admin_user
+    prompt: Admin user name (created on first start)
+    type: string
+    default: admin
+  - key: admin_password
+    prompt: Admin password, at least 6 characters (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: postgres_password
+    prompt: Database password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 8085
+    protocol: tcp
+    public: false
+    description: The web UI and API.
+
+stack:
+  services:
+    - name: postgres
+      image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+      env:
+        POSTGRES_USER: miniflux
+        POSTGRES_PASSWORD: "{{.Settings.postgres_password}}"
+        POSTGRES_DB: miniflux
+      volumes:
+        - { path: data/postgres, target: /var/lib/postgresql/data }
+      health:
+        command: [pg_isready, -U, miniflux, -d, miniflux]
+        interval_seconds: 5
+        retries: 20
+    - name: miniflux
+      image: miniflux/miniflux:2.3.5@sha256:8fd6c3c434ecc3d4083306f83e03c0bb74c632e0f8378da5ead7e1773b0b89c9
+      env:
+        DATABASE_URL: "postgres://miniflux:{{.Settings.postgres_password}}@postgres/miniflux?sslmode=disable"
+        RUN_MIGRATIONS: "1"
+        CREATE_ADMIN: "1"
+        ADMIN_USERNAME: "{{.Settings.admin_user}}"
+        ADMIN_PASSWORD: "{{.Settings.admin_password}}"
+        BASE_URL: "{{.Settings.base_url}}"
+      ports:
+        - { port: http, target: 8080 }
+      depends_on: [postgres]
+
+console:
+  exec:
+    service: postgres
+    command: [psql, -U, miniflux, -d, miniflux]
+    description: the PostgreSQL shell for Miniflux's database
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - To reach it from other computers on your network, add `--expose http`.

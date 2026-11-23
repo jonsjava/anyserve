@@ -1,6 +1,8 @@
 package steps
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,5 +93,32 @@ func TestWriteFilesKeepsHandEdits(t *testing.T) {
 		if st.Mode().Perm() != 0o600 {
 			t.Errorf("config files can hold passwords and should be 0600, got %v", st.Mode().Perm())
 		}
+	}
+}
+
+func TestRunExecOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho run >> runs.txt\necho \"$1\" > \"$2\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "make-world.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &spec.Definition{ID: "x", Steps: []spec.Step{{
+		Type: "exec", Command: "make-world.sh", Args: []string{"{{.Settings.seed}}", "world.txt"}, Creates: "world.txt",
+	}}}
+	tctx := spec.Context{Dir: dir, Settings: map[string]any{"seed": "42"}}
+	for i := 0; i < 2; i++ {
+		if err := RunExec(context.Background(), d, dir, runtime.GOOS, tctx, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, _ := os.ReadFile(filepath.Join(dir, "runs.txt"))
+	if string(runs) != "run\n" {
+		t.Errorf("exec step ran %q times, want once", runs)
+	}
+	if w, _ := os.ReadFile(filepath.Join(dir, "world.txt")); string(w) != "42\n" {
+		t.Errorf("args not rendered: %q", w)
 	}
 }

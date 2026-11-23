@@ -1,0 +1,66 @@
+schema: 1
+id: vaultwarden
+name: Vaultwarden
+description: A lightweight server for the Bitwarden password manager apps and browser extensions.
+homepage: https://github.com/dani-garcia/vaultwarden
+version: "1.37.5-1"
+kind: stack
+
+settings:
+  - key: domain
+    prompt: Full address people will use, with https:// (e.g. https://vault.example.com)
+    description: Bitwarden apps and web vault links use this. Leave the default only for testing on this machine.
+    type: string
+    default: http://localhost:8222
+  - key: signups_allowed
+    prompt: Let anyone with the address create an account?
+    description: Turn this off after creating your own accounts, or invite people from the admin page instead.
+    type: bool
+    default: true
+  - key: admin_token
+    prompt: Admin page token (leave empty to generate one)
+    description: Opens /admin, where you can invite users and change server settings.
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 8222
+    protocol: tcp
+    public: false
+    description: The web vault, API and admin page. Put an HTTPS proxy in front of it.
+
+stack:
+  services:
+    - name: vaultwarden
+      image: vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
+      env:
+        DOMAIN: "{{.Settings.domain}}"
+        SIGNUPS_ALLOWED: "{{truefalse .Settings.signups_allowed}}"
+        ADMIN_TOKEN: "{{.Settings.admin_token}}"
+        ROCKET_PORT: "8080"
+        DATA_FOLDER: /data
+      volumes:
+        - { path: data, target: /data }
+      ports:
+        - { port: http, target: 8080 }
+
+console:
+  exec:
+    service: vaultwarden
+    command: [sh]
+    description: a shell in the Vaultwarden container
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Bitwarden apps and browsers only unlock vaults over HTTPS (or on http://localhost). Put an HTTPS reverse proxy such as Caddy in front of it, and set domain to that address.
+  - The admin page is at /admin. See the token with `anyserve config <name> --show-secrets`.
+  - To reach it from other computers on your network, add `--expose http` (at install, or later with `anyserve config`).

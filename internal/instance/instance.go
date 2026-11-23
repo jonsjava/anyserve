@@ -32,10 +32,14 @@ type Instance struct {
 	ServerDir string `json:"server_dir"`
 	// Settings holds raw values as the user gave them (or as generated),
 	// so they can be re-resolved against newer definitions.
-	Settings  map[string]string `json:"settings"`
-	Ports     map[string]int    `json:"ports"`
-	Installed time.Time         `json:"installed"`
-	Updated   time.Time         `json:"updated"`
+	Settings map[string]string `json:"settings"`
+	Ports    map[string]int    `json:"ports"`
+	// Expose lists private ports the user chose to open to the network
+	// (for a stack's web UI on a home LAN, say). Private ports otherwise
+	// listen on 127.0.0.1 only.
+	Expose    []string  `json:"expose,omitempty"`
+	Installed time.Time `json:"installed"`
+	Updated   time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
 
@@ -200,7 +204,7 @@ func (in *Instance) Context(d *spec.Definition, goos string) (spec.Context, erro
 	if err != nil {
 		return spec.Context{}, err
 	}
-	return spec.Context{Name: in.Name, Dir: in.ServerDir, OS: goos, Settings: settings, Ports: ports}, nil
+	return spec.Context{Name: in.Name, Dir: in.ServerDir, OS: goos, Settings: settings, Ports: ports, UID: os.Getuid(), GID: os.Getgid()}, nil
 }
 
 func writeFile(p string, data []byte, mode os.FileMode) error {
@@ -209,4 +213,14 @@ func writeFile(p string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+// Exposed reports whether the user opened a private port to the network.
+func (in *Instance) Exposed(port string) bool {
+	for _, p := range in.Expose {
+		if p == port {
+			return true
+		}
+	}
+	return false
 }

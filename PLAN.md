@@ -179,6 +179,53 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
   - `anyserve rcon <host:port>` reaches servers on other machines. The password comes from an environment variable or a prompt, never a flag.
 - **Not done yet:** native servers in containers (the `container:` hints), Kubernetes, and Quake-style UDP rcon (Quake 4 keeps the stdin console).
 
+### Session 3 (2026-11-22): 33 more games and apps
+- **Goal:** be useful to more people. The registry went from 14 to 47 definitions: 12 more games and 21 self-hosted apps.
+- **Engine features added to make them fit** (each general, none tied to one service):
+  - `folder` settings, so apps can share a folder of the user's files (music, media, documents). The user picks the folder; Anyserve resolves symlinks and refuses `/`, system folders, the whole home folder and folders holding keys (`~/.ssh`, `~/.config`, `~/.gnupg` and others). Stack volumes mount them with `setting:`.
+  - `--expose` at install and `config --expose/--unexpose` later, to open a stack's private web port to the network. Without it, app pages stay on 127.0.0.1.
+  - `must_accept` bool settings for licences such as Mojang's EULA. Anyserve won't install until the user adds `--set key=true` themselves.
+  - Installs made only of pinned `downloads` (single-jar servers), `archive.format` for URLs without an extension, and `archive.keep` for config files an update mustn't replace (Bedrock).
+  - `run.via_args` (JVM flags between `java` and the jar).
+  - An `exec` step that runs once, for first-start setup such as Factorio's `--create`.
+  - `stop.rcon`: send the stop command over RCON, for servers with no stdin console (Palworld). `say` and the save before a backup also use RCON when the server has it.
+  - RCON client fixes for Palworld: it closes the connection after each reply, and it answers with id 0 instead of the request's id.
+  - Template helpers `hasPrefix` and `xml`.
+  - Fixes: `config` changes to a stack now rewrite its compose file, and `logs` only shows the current instance's journal after a reinstall under the same name.
+- **Games, tested on Linux:**
+  - **Full run** (start, console or RCON, save, clean stop, backup where relevant): Factorio, Garry's Mod, Mindustry, Necesse, Palworld, Unturned.
+  - **Started and stopped cleanly:** Arma Reforger, Project Zomboid (saves on stop), Satisfactory, Valheim.
+  - **Not booted here:** Minecraft (Java and Paper) need Java 25, which the dev machine doesn't have, and the EULA wasn't accepted on the user's behalf. The vanilla install and its launch line were checked. Minecraft Bedrock wasn't run.
+  - **Fixes the tests found:** Garry's Mod needs the x86-64 beta (the 32-bit build hangs) and `+ip 0.0.0.0` (otherwise srcds binds RCON to 127.0.1.1). Unturned only reads console commands from a real terminal, so it has no console in Anyserve and stops by interrupt, which saves the world.
+- **Apps, tested with Docker:** every one installed, started and answered HTTP: Actual Budget, Audiobookshelf, Forgejo, Gitea, Gotify, Grafana, Immich, Jellyfin, Mealie, Memos, Miniflux, Mumble, n8n, Navidrome, ntfy, Paperless-ngx, Syncthing, Umami, Uptime Kuma and Vaultwarden.
+  - Logins checked with the generated or default credentials: Gotify, Miniflux, Grafana, Vaultwarden's admin page, Umami, Mealie and Paperless-ngx. Gitea's first registered user becomes admin.
+  - Paperless-ngx imported a file dropped in its consume folder. The test found that without a chosen folder the image's own one belongs to root and Paperless refuses to start, so it now watches a folder inside the instance.
+- **Dropped or skipped:**
+  - **linkding:** its image must start as root (uwsgi and supervisord drop privileges), which stacks don't allow.
+  - **7 Days to Die:** its console is telnet only.
+  - **ARK:** stopping needs several console commands in a row.
+  - **TeamSpeak:** needs a licence accepted through an environment variable; worth adding with `must_accept`.
+
+### Session 3b (2026-11-23): Harmony
+- **Harmony** (y4my4my4m/harmony, v1.9.7) is now a stack of 15 containers: Supabase's Postgres, GoTrue, PostgREST, Realtime, Storage, imgproxy and Kong, plus Harmony's web app, federation server and worker, Redis, an nginx media cache, and Caddy running upstream's own Caddyfile. Two jobs run on every start: the 240 database migrations, then creating the admin. It follows the jonsjava/harmony-kubernetes chart, whose migration and admin scripts it downloads.
+- **Engine features it needed** (all general):
+  - Stacks may fetch pinned files to mount (`install.archive` with a required sha256, and `install.downloads`), and archives can extract into a subfolder (`to`).
+  - `once` services: jobs that run to completion. Dependents wait for success, and a finished job doesn't count as stopped.
+  - `health: { disable: true }` turns off an image's own check.
+  - Template helpers `jwt` (Supabase's API keys from one secret), `sha256`, `urlHost` and `mul`, and `.UID`/`.GID`.
+- **Everything runs as the user with no capabilities.** Workarounds, each kept inside the definition:
+  - supabase/postgres needs its uid in `/etc/passwd`, so a generated passwd file is mounted.
+  - Only the pgsodium key file is mounted, not its whole config folder, which would hide the image's own config.
+  - Caddy's binary carries a file capability, so the container runs a plain copy.
+  - The nginx images start nginx by its path, which skips their root-only startup scripts. Anyserve writes the web app's `config.json`.
+- **Bug found:** `backup.stop_first` only stopped stacks whose state was exactly "running", so a stack with one unhealthy container was backed up live. It now stops anything that isn't stopped.
+- **Tested:**
+  - Installs and starts in about 60 seconds once the images (about 3 GB) are cached.
+  - The admin signs in through the API and the web UI. In the UI, a new server, a channel message and presence all work.
+  - Storage serves Harmony's buckets.
+  - Backup stops and restarts the stack, and restore brings the data back.
+- **Not set up:** voice (LiveKit), bots, push notifications (VAPID), mail, and the Discord bridge.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
@@ -187,6 +234,7 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 5. Several processes per server (DST's caves), more `set` formats (xml, properties, yaml), and a second install source for bring-your-own game data
 6. Scheduled backups and update checks
 7. LinuxGSM pull request for Wurm Unlimited, and an issue about Quake 4's missing base paks
+8. A telnet console (7 Days to Die), multi-command stops (ARK), and TeamSpeak
 
 ## Decided since the start
 

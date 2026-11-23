@@ -135,12 +135,20 @@ func (c *sourceClient) Exec(command string) (string, error) {
 				// Some commands produce no output at all.
 				return "", nil
 			}
+			if got && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
+				// Some servers (Palworld) close the connection after
+				// each reply.
+				return out.String(), nil
+			}
 			return out.String(), err
 		}
 		if p.typ == typeAuthResp && p.id == -1 {
 			return "", ErrAuth
 		}
-		if p.id == id && p.typ == typeResponse {
+		// Palworld answers every command with id 0 instead of the
+		// request's id. Commands go one at a time, so a reply with id 0
+		// can only be for this one.
+		if (p.id == id || p.id == 0) && p.typ == typeResponse {
 			out.WriteString(p.body)
 			got = true
 			deadline = time.Now().Add(250 * time.Millisecond)

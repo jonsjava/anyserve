@@ -1,0 +1,68 @@
+schema: 1
+id: umami
+name: Umami
+description: Simple, privacy-friendly website analytics without cookies, as an alternative to Google Analytics.
+homepage: https://umami.is
+version: "3.5.0-1"
+kind: stack
+
+settings:
+  - key: app_secret
+    prompt: App secret (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: postgres_password
+    prompt: Database password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 3004
+    protocol: tcp
+    public: false
+    description: The dashboard and the tracking script. Websites must reach it, so put an HTTPS proxy in front of it.
+
+stack:
+  services:
+    - name: postgres
+      image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+      env:
+        POSTGRES_USER: umami
+        POSTGRES_PASSWORD: "{{.Settings.postgres_password}}"
+        POSTGRES_DB: umami
+      volumes:
+        - { path: data/postgres, target: /var/lib/postgresql/data }
+      health:
+        command: [pg_isready, -U, umami, -d, umami]
+        interval_seconds: 5
+        retries: 20
+    - name: umami
+      image: ghcr.io/umami-software/umami:3.5.0@sha256:b64f40400d77bcadd39cf5c62a1e368c99524ca442024f96e1133355a19a5dbc
+      env:
+        DATABASE_URL: "postgresql://umami:{{.Settings.postgres_password}}@postgres:5432/umami"
+        APP_SECRET: "{{.Settings.app_secret}}"
+        DISABLE_TELEMETRY: "1"
+      ports:
+        - { port: http, target: 3000 }
+      depends_on: [postgres]
+
+console:
+  exec:
+    service: postgres
+    command: [psql, -U, umami, -d, umami]
+    description: the PostgreSQL shell for Umami's database
+
+backup:
+  paths: [data]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - "Log in with user admin and password umami, then change the password straight away."
+  - The sites you track must load its script, so serve it over HTTPS on a public address.

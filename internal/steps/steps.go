@@ -3,14 +3,17 @@
 package steps
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/jonsjava/anyserve/internal/spec"
 )
@@ -36,6 +39,9 @@ func Apply(d *spec.Definition, dir, goos string, opts Options) error {
 
 func apply(s spec.Step, dir string, opts Options) error {
 	switch s.Type {
+	case "exec":
+		// Runs later, in RunExec, once config files are written.
+		return nil
 	case "steam_sdk":
 		if runtime.GOOS != "linux" {
 			return nil
@@ -284,3 +290,53 @@ func copyDir(from, to string) error {
 
 // ErrNotInstalled means the server files aren't there.
 var ErrNotInstalled = errors.New("server files are missing; run `anyserve update` to reinstall them")
+
+// RunExec runs the definition's exec steps that apply to goos: each runs the
+// server's own command once, from the server folder with HOME set to it,
+// unless its creates path already exists.
+func RunExec(ctx context.Context, d *spec.Definition, dir, goos string, tctx spec.Context, out io.Writer) error {
+	for i, s := range d.Steps {
+		if s.Type != "exec" || !spec.AppliesTo(s.OS, goos) {
+			continue
+		}
+		where := fmt.Sprintf("%s step %d (exec)", d.ID, i+1)
+		creates, err := Resolve(dir, s.Creates)
+		if err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		if exists(creates) {
+			continue
+		}
+		cmdPath, err := Resolve(dir, s.Command)
+		if err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		var args []string
+		for j, a := range s.Args {
+			v, err := spec.Render(fmt.Sprintf("steps[%d].args[%d]", i, j), a, tctx)
+			if err != nil {
+				return err
+			}
+			if v != "" {
+				args = append(args, v)
+			}
+		}
+		rctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		cmd := exec.CommandContext(rctx, cmdPath, args...)
+		cmd.Dir = dir
+		cmd.Stdout, cmd.Stderr = out, out
+		cmd.Env = os.Environ()
+		if runtime.GOOS != "windows" {
+			cmd.Env = append(cmd.Env, "HOME="+dir)
+		}
+		err = cmd.Run()
+		cancel()
+		if err != nil {
+			return fmt.Errorf("%s: %s: %w", where, s.Command, err)
+		}
+		if !exists(creates) {
+			return fmt.Errorf("%s: %s finished but didn't create %s", where, s.Command, s.Creates)
+		}
+	}
+	return nil
+}

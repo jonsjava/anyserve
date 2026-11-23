@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jonsjava/anyserve/internal/fetch"
@@ -35,6 +36,8 @@ type InstallRequest struct {
 	Start     bool
 	// SteamOutput shows SteamCMD's full output.
 	SteamOutput bool
+	// Expose opens these private ports to the network (stacks only).
+	Expose []string
 }
 
 // Plan is a checked install request, ready to run. The wizard builds one
@@ -88,6 +91,9 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 		return nil, err
 	}
 	p := &Plan{Req: req, Entry: e, Target: t, Settings: settings, Ports: ports}
+	if err := checkExpose(e.Def, req.Expose); err != nil {
+		return nil, err
+	}
 	conflicts, warnings := a.checkPorts(req.Name, e.Def, ports)
 	if len(conflicts) > 0 {
 		return nil, errors.New(strings.Join(conflicts, "\n") + "\nChoose other ports with --port name=number")
@@ -175,6 +181,7 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		Target:            p.Target.Name(),
 		Settings:          map[string]string{},
 		Ports:             p.Ports,
+		Expose:            p.Req.Expose,
 		Installed:         now,
 		Updated:           now,
 	}
@@ -229,24 +236,20 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 func (a *App) installFiles(ctx context.Context, in *instance.Instance, d *spec.Definition, steamOutput bool) error {
 	if d.IsStack() {
 		// The software comes from images, which the docker target pulls.
+		// A stack may still fetch pinned data files to mount.
+		if err := a.fetchArchive(ctx, in, d); err != nil {
+			return err
+		}
+		if err := a.fetchDownloads(ctx, in, d); err != nil {
+			return err
+		}
 		return a.writeConfig(in, d)
 	}
 	switch {
 	case d.Install.Archive != nil:
-		ar := d.Install.Archive
-		file, err := fetch.Download(ctx, ar.URL, ar.SHA256, a.Dirs.Downloads(), a.Log)
-		if err != nil {
+		if err := a.fetchArchive(ctx, in, d); err != nil {
 			return err
 		}
-		sub := ar.Subdir[runtime.GOOS]
-		if sub == "" {
-			sub = ar.Subdir["*"]
-		}
-		n, err := fetch.Extract(file, sub, in.ServerDir)
-		if err != nil {
-			return err
-		}
-		a.Log("Extracted %d files", n)
 	case d.Install.SteamCMD != nil:
 		sc := a.steamCMD()
 		if steamOutput {
@@ -269,6 +272,70 @@ func (a *App) installFiles(ctx context.Context, in *instance.Instance, d *spec.D
 			return err
 		}
 	}
+	if err := a.fetchDownloads(ctx, in, d); err != nil {
+		return err
+	}
+	if err := steps.Apply(d, in.ServerDir, runtime.GOOS, steps.Options{SteamCMDDir: a.steamCMD().Dir}); err != nil {
+		return err
+	}
+	if err := a.writeConfig(in, d); err != nil {
+		return err
+	}
+	tctx, err := in.Context(d, runtime.GOOS)
+	if err != nil {
+		return err
+	}
+	out := io.Discard
+	if a.Out != nil {
+		out = a.Out
+	}
+	return steps.RunExec(ctx, d, in.ServerDir, runtime.GOOS, tctx, out)
+}
+
+// fetchArchive downloads and extracts install.archive, if there is one.
+func (a *App) fetchArchive(ctx context.Context, in *instance.Instance, d *spec.Definition) error {
+	ar := d.Install.Archive
+	if ar == nil {
+		return nil
+	}
+	file, err := fetch.Download(ctx, ar.URL, ar.SHA256, a.Dirs.Downloads(), a.Log)
+	if err != nil {
+		return err
+	}
+	sub := ar.Subdir[runtime.GOOS]
+	if sub == "" {
+		sub = ar.Subdir["*"]
+	}
+	dest := in.ServerDir
+	if ar.To != "" {
+		if dest, err = steps.Resolve(in.ServerDir, ar.To); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return err
+		}
+	}
+	keep := make([]string, len(ar.Keep))
+	for i, k := range ar.Keep {
+		// Keep paths are relative to the server folder.
+		keep[i] = k
+		if ar.To != "" {
+			if rel, err := filepath.Rel(filepath.FromSlash(ar.To), filepath.FromSlash(k)); err == nil {
+				keep[i] = filepath.ToSlash(rel)
+			}
+		}
+	}
+	n, err := fetch.ExtractAs(file, ar.Format, sub, dest, keep)
+	if err != nil {
+		return err
+	}
+	a.Log("Extracted %d files", n)
+	return nil
+}
+
+// fetchDownloads fetches install.downloads that aren't there yet (or are
+// marked always).
+func (a *App) fetchDownloads(ctx context.Context, in *instance.Instance, d *spec.Definition) error {
 	for _, dl := range d.Install.Downloads {
 		dst, err := steps.Resolve(in.ServerDir, dl.To)
 		if err != nil {
@@ -286,10 +353,7 @@ func (a *App) installFiles(ctx context.Context, in *instance.Instance, d *spec.D
 		}
 		a.Log("Added %s", dl.To)
 	}
-	if err := steps.Apply(d, in.ServerDir, runtime.GOOS, steps.Options{SteamCMDDir: a.steamCMD().Dir}); err != nil {
-		return err
-	}
-	return a.writeConfig(in, d)
+	return nil
 }
 
 func (a *App) writeConfig(in *instance.Instance, d *spec.Definition) error {
@@ -561,7 +625,7 @@ func (a *App) Say(name, msg string) error {
 	if err != nil {
 		return err
 	}
-	return supervise.Send(in.ConsoleSocket(), s)
+	return a.sendLine(in, d, s)
 }
 
 // Run supervises an instance in the foreground. Service managers call this.
@@ -611,6 +675,7 @@ func (a *App) Run(ctx context.Context, name string) error {
 			chain = append(chain, prog)
 			chain = append(chain, l.Args...)
 		}
+		chain = append(chain, r.ViaArgs...)
 		chain = append(chain, cmdPath)
 		command, args = chain[0], append(chain[1:], r.Args...)
 	}
@@ -630,7 +695,19 @@ func (a *App) Run(ctx context.Context, name string) error {
 		env = append(env, k+"="+r.Env[k])
 	}
 	timeout := time.Duration(d.Stop.TimeoutSeconds) * time.Second
+	var stopFunc func() error
+	if d.Stop.RCON {
+		stopFunc = func() error {
+			err := a.sendLine(in, d, d.Stop.Command)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) {
+				// The server closed the connection as it shut down.
+				return nil
+			}
+			return err
+		}
+	}
 	return supervise.Run(ctx, supervise.Options{
+		StopFunc:    stopFunc,
 		Command:     command,
 		Args:        args,
 		Dir:         workdir,
@@ -710,10 +787,61 @@ func knownSettings(d *spec.Definition, raw map[string]string) map[string]string 
 
 // Reconfigure changes settings or ports, rewrites config files and restarts
 // the server if it was running.
-func (a *App) Reconfigure(name string, settings map[string]string, ports map[string]int) error {
+// Changes are what `anyserve config` can change on an instance.
+type Changes struct {
+	Settings map[string]string
+	Ports    map[string]int
+	// Expose and Unexpose open private ports to the network, or close
+	// them again (stacks only).
+	Expose, Unexpose []string
+}
+
+// checkExpose checks that ports named for --expose exist and can be
+// exposed.
+func checkExpose(d *spec.Definition, names []string) error {
+	for _, n := range names {
+		p, ok := d.Port(n)
+		if !ok {
+			return fmt.Errorf("%s has no port %q", d.Name, n)
+		}
+		if !d.IsStack() {
+			return fmt.Errorf("--expose is for stacks; %s's ports are opened by the server itself", d.Name)
+		}
+		if p.Public {
+			return fmt.Errorf("port %q is already open to the network", n)
+		}
+	}
+	return nil
+}
+
+// Reconfigure applies changes and restarts the instance if it was running.
+func (a *App) Reconfigure(name string, c Changes) error {
+	settings, ports := c.Settings, c.Ports
 	in, d, t, err := a.load(name)
 	if err != nil {
 		return err
+	}
+	if err := checkExpose(d, c.Expose); err != nil {
+		return err
+	}
+	if err := checkExpose(d, c.Unexpose); err != nil {
+		return err
+	}
+	expose := map[string]bool{}
+	for _, p := range in.Expose {
+		expose[p] = true
+	}
+	for _, p := range c.Expose {
+		expose[p] = true
+	}
+	for _, p := range c.Unexpose {
+		delete(expose, p)
+	}
+	in.Expose = nil
+	for _, p := range d.Ports {
+		if expose[p.Name] {
+			in.Expose = append(in.Expose, p.Name)
+		}
 	}
 	merged := map[string]string{}
 	for k, v := range in.Settings {
@@ -745,6 +873,12 @@ func (a *App) Reconfigure(name string, settings map[string]string, ports map[str
 	}
 	if err := a.writeConfig(in, d); err != nil {
 		return err
+	}
+	if d.IsStack() {
+		// Settings, ports and exposure live in the compose file.
+		if err := t.Register(in, d, a.targetEnv()); err != nil {
+			return err
+		}
 	}
 	if t.Status(in).State == "running" {
 		a.Log("Restarting %s to apply the change", in.Name)

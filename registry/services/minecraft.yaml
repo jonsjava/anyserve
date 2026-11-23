@@ -1,0 +1,158 @@
+schema: 1
+id: minecraft
+name: Minecraft (Java Edition)
+description: Mojang's official vanilla Minecraft Java Edition server.
+homepage: https://www.minecraft.net/en-us/download/server
+version: "26.3-1"
+platforms: [linux, windows, darwin]
+
+install:
+  downloads:
+    - url: https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar
+      sha256: d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64
+      to: server.jar
+      always: true
+
+settings:
+  - key: accept_eula
+    prompt: Do you agree to the Minecraft EULA (https://aka.ms/MinecraftEULA)?
+    description: Mojang requires this before the server runs.
+    type: bool
+    must_accept: true
+  - key: motd
+    prompt: Server description shown in the server list
+    type: string
+    default: An Anyserve Minecraft server
+  - key: max_players
+    prompt: Maximum players
+    type: int
+    default: 20
+    min: 1
+    max: 1000
+  - key: gamemode
+    prompt: Game mode
+    type: choice
+    default: survival
+    choices:
+      - { value: survival, label: Survival }
+      - { value: creative, label: Creative }
+      - { value: adventure, label: Adventure }
+      - { value: spectator, label: Spectator }
+  - key: difficulty
+    prompt: Difficulty
+    type: choice
+    default: normal
+    choices:
+      - { value: peaceful, label: Peaceful }
+      - { value: easy, label: Easy }
+      - { value: normal, label: Normal }
+      - { value: hard, label: Hard }
+  - key: pvp
+    prompt: Allow players to fight each other?
+    type: bool
+    default: true
+  - key: online_mode
+    prompt: Check players' Minecraft accounts (online mode)?
+    description: Leave on unless you know why not. Off lets anyone join under any name.
+    type: bool
+    default: true
+  - key: whitelist
+    prompt: Only let whitelisted players join?
+    description: Add players from the console with `whitelist add <name>`.
+    type: bool
+    default: false
+  - key: seed
+    prompt: World seed (leave empty for random; used when the world is created)
+    type: string
+    optional: true
+  - key: view_distance
+    prompt: View distance in chunks
+    type: int
+    default: 10
+    min: 3
+    max: 32
+  - key: memory_mb
+    prompt: Memory for the server in MB
+    type: int
+    default: 2048
+    min: 512
+    max: 65536
+  - key: rcon_password
+    prompt: RCON password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: game
+    port: 25565
+    protocol: tcp
+    public: true
+    description: Players connect here.
+  - name: rcon
+    port: 25575
+    protocol: tcp
+    public: false
+    description: Remote console for `anyserve console`.
+
+files:
+  - path: eula.txt
+    overwrite: true
+    template: |
+      # Written by Anyserve from the accept_eula setting.
+      eula={{truefalse .Settings.accept_eula}}
+  - path: server.properties
+    format: lines
+    template: |
+      # Created by Anyserve. Minecraft adds its other settings on first start.
+    set:
+      "motd=": "motd={{.Settings.motd}}"
+      "server-port=": "server-port={{.Ports.game}}"
+      "max-players=": "max-players={{.Settings.max_players}}"
+      "gamemode=": "gamemode={{.Settings.gamemode}}"
+      "difficulty=": "difficulty={{.Settings.difficulty}}"
+      "pvp=": "pvp={{truefalse .Settings.pvp}}"
+      "online-mode=": "online-mode={{truefalse .Settings.online_mode}}"
+      "white-list=": "white-list={{truefalse .Settings.whitelist}}"
+      "enforce-whitelist=": "enforce-whitelist={{truefalse .Settings.whitelist}}"
+      "level-seed=": "level-seed={{.Settings.seed}}"
+      "view-distance=": "view-distance={{.Settings.view_distance}}"
+      "enable-rcon=": "enable-rcon=true"
+      "rcon.port=": "rcon.port={{.Ports.rcon}}"
+      "rcon.password=": "rcon.password={{.Settings.rcon_password}}"
+
+run:
+  linux: &run
+    command: server.jar
+    via: [java]
+    via_args: ["-Xms{{.Settings.memory_mb}}M", "-Xmx{{.Settings.memory_mb}}M", "-jar"]
+    args: [nogui]
+  windows: *run
+  darwin: *run
+
+stop:
+  command: stop
+  timeout_seconds: 90
+
+console:
+  say: "say {{.Message}}"
+  save: save-all flush
+  rcon:
+    protocol: source
+    port: rcon
+    password: "{{.Settings.rcon_password}}"
+
+backup:
+  paths: [world, server.properties, ops.json, whitelist.json, banned-players.json, banned-ips.json]
+
+container:
+  image: eclipse-temurin:25-jre
+
+linuxgsm:
+  status: upstream
+  name: mcserver
+
+notes:
+  - Needs Java 25 or newer (on Debian or Ubuntu, `sudo apt install openjdk-25-jre-headless` where available, or Eclipse Temurin).
+  - Installing asks you to agree to Mojang's EULA (or pass `--set accept_eula=true`).
+  - Make yourself an operator from the console with `op <your name>`.
