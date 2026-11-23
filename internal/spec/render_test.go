@@ -1,11 +1,11 @@
 package spec
 
 import (
-	"path/filepath"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )

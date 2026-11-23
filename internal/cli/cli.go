@@ -529,10 +529,10 @@ func updateCmd() *cobra.Command {
 
 func configCmd() *cobra.Command {
 	var (
-		sets, ports      []string
-		expose, unexpose []string
+		sets, ports        []string
+		expose, unexpose   []string
 		isolate, noIsolate bool
-		showSecrets      bool
+		showSecrets        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "config <name>",
