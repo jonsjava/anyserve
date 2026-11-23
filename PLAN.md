@@ -371,6 +371,33 @@ Steps, each its own pull request:
 6. ~~**SFTP**~~ (Session 4c): in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
 7. ~~**Native servers in containers**~~ (Session 4d) (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
 
+## Roadmap: domains for every server, and a fleet (asked 2026-11-23; build after the remote-access roadmap)
+
+### 1. A domain for each game or app (SNI and hostname routing)
+The goal: every instance can have a name people point at it (`rust.example.com`, `vault.example.com`), whatever kind of server it is. Apps already get this through `--domain` and the HTTPS proxy. Games need different handling depending on their protocol:
+- **HTTP(S) apps:** done (Caddy, or the nginx/Traefik file).
+- **TLS services on TCP** (anything that speaks TLS with SNI: Matrix federation, IRC over TLS, MQTT over TLS, databases): route by SNI on port 443 without decrypting. Caddy's layer4 module does this; Anyserve would build Caddy with `caddy-l4` (via xcaddy in CI, pinned) and add `--domain` for TLS ports. Several services then share 443.
+- **Games that send the hostname in their handshake** (Minecraft Java, and Bedrock through a proxy): route by hostname, so many servers share 25565. Use a small router (mc-router-style, or Velocity for Minecraft) run like Caddy. Definitions declare `routing: minecraft` on the port.
+- **Every other game** (most UDP games: Rust, Valheim, ARK…) can't be routed by name. The name is just DNS, so Anyserve tells people exactly what records to create: an A/AAAA record, plus SRV records where the game reads them (`_minecraft._tcp`, and Factorio and others where supported). `anyserve dns <name>` prints them, and an optional DNS provider integration (Cloudflare, Route 53 tokens) creates them.
+- **Definition changes:** a port's `routing` (http, tls-sni, minecraft, srv:<service>, none) and an optional `srv` record name. Older Anyserve versions skip definitions that use `routing` (Session 3c).
+- **Open question for the user:** does "SNI domain" mean all of the above, or specifically sharing 443 between TLS services? Plan for all, build HTTP → SRV/DNS → Minecraft → TLS-SNI in that order.
+
+### 2. Manager and workers (one place to run many hosts)
+The goal: like Pterodactyl's panel and wings, one manager runs servers on many machines, and adding a machine is as easy as installing an endpoint agent: one command, with no ports to open on the worker and nothing to configure.
+- **Joining:** on the manager, `anyserve fleet token` prints a short-lived, single-use join command:
+  `curl -fsSL https://<manager>/join.sh | sh -s -- <token>` (or `anyserve fleet join <manager> <token>` where Anyserve is already installed).
+  The script downloads the signed release binary for the OS and architecture (so this needs release binaries first: Next item 3), verifies its signature, installs `anyserve serve` as a service, and enrolls.
+- **Connections go outward only:** the worker dials the manager (its SSH server, port 7022, or 443 through the HTTPS proxy) and keeps that connection open. The manager reaches the worker's API back through it (reverse channels over SSH), so workers behind NAT or firewalls need no open ports. The worker pins the manager's host key from the token; the manager pins the worker's key at enrollment.
+- **On the manager:**
+  - the web UI and API gain a node dimension: instances are listed by node, and the same users and grants work across nodes;
+  - admins (with their browser certificate) can install, update and remove on any node;
+  - node health: last seen, load, disk, Anyserve version;
+  - scheduled updates and backups per node, with backups optionally copied to the manager or object storage.
+- **Workers keep running on their own:** a worker with no manager connection keeps its servers running, and its own CLI still works.
+- **Security:** join tokens expire (1 hour) and are single-use. Nodes can be revoked, and every action is audited with node and user. The manager never gets shells on workers; only the same narrow API.
+- **Upgrades:** the manager can push an Anyserve upgrade to nodes (the signed binary, the same flow as `anyserve upgrade`).
+- **Order:** release binaries and `anyserve upgrade` → the node API over reverse SSH and `fleet token/join/list/revoke` → nodes in the web UI → remote install from the UI → backups to the manager.
+
 ## Decided since the start
 
 - Linux comes first for milestone 2.
