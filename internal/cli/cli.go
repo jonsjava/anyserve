@@ -75,7 +75,7 @@ Run anyserve with no arguments for a guided install.`,
 		startCmd(), stopCmd(), restartCmd(), logsCmd(), updateCmd(),
 		configCmd(), portsCmd(), consoleCmd(), rconCmd(), sayCmd(),
 		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(), serveCmd(),
-		usersCmd(), remoteCmd(), proxyCmd(), portForwardCmd(), httpsCmd(),
+		usersCmd(), remoteCmd(), proxyCmd(), portForwardCmd(), httpsCmd(), dnsCmd(), routerCmd(),
 		refreshCmd(), registryCmd(),
 		steamCmd(), targetsCmd(), runCmd(), versionCmd(),
 	)
@@ -287,7 +287,7 @@ func installCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printPlan(cmd, plan)
+			printPlan(cmd, a, plan)
 			if !yes && interactive() {
 				ok, err := confirm("Install now?")
 				if err != nil || !ok {
@@ -312,14 +312,14 @@ func installCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&req.Start, "start", false, "start the server after installing")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask for confirmation")
 	cmd.Flags().BoolVar(&req.SteamOutput, "steam-output", false, "show SteamCMD's full output")
-	cmd.Flags().StringVar(&req.Domain, "domain", "", "serve an app over HTTPS at this domain through the proxy (`anyserve https`)")
+	cmd.Flags().StringVar(&req.Domain, "domain", "", "give the instance a domain: HTTPS for apps, the shared port for Minecraft, a DNS name otherwise (`anyserve dns`)")
 	cmd.Flags().StringVar(&req.DomainPort, "domain-port", "", "which port the domain reaches (default: the app's web port)")
 	cmd.Flags().BoolVar(&req.Isolate, "isolate", false, "run a native server in a container that sees only its own folder (Linux, Docker)")
 	cmd.Flags().StringArrayVar(&req.Expose, "expose", nil, "open a private port (such as a web UI) to the network instead of this machine only (stacks; repeatable)")
 	return cmd
 }
 
-func printPlan(cmd *cobra.Command, p *app.Plan) {
+func printPlan(cmd *cobra.Command, a *app.App, p *app.Plan) {
 	out := cmd.OutOrStdout()
 	d := p.Entry.Def
 	fmt.Fprintf(out, "Service:  %s (%s)\nName:     %s\nTarget:   %s\n", d.Name, d.ID, p.Req.Name, p.Target.Name())
@@ -328,7 +328,7 @@ func printPlan(cmd *cobra.Command, p *app.Plan) {
 		fmt.Fprintf(out, "  %s = %s\n", s.Key, displayValue(s, p.Settings[s.Key]))
 	}
 	fmt.Fprintln(out, "Ports:")
-	fmt.Fprint(out, app.FormatPorts(d, p.Ports))
+	fmt.Fprint(out, app.FormatPortsShared(d, p.Ports, a.SharedPorts(d, p.Req.Domain, p.Req.DomainPort)))
 	for _, w := range p.Warnings {
 		fmt.Fprintf(out, "Warning: %s\n", w)
 	}
@@ -595,12 +595,23 @@ func configCmd() *cobra.Command {
 			}
 			ps, _ := d.ResolvePorts(in.Ports)
 			fmt.Fprintln(out, "Ports:")
-			fmt.Fprint(out, app.FormatPorts(d, ps))
+			fmt.Fprint(out, app.FormatPortsShared(d, ps, a.SharedPorts(d, in.Domain, in.DomainPort)))
 			if len(in.Expose) > 0 {
 				fmt.Fprintf(out, "Opened to the network with --expose: %s\n", strings.Join(in.Expose, ", "))
 			}
 			if in.Domain != "" {
-				fmt.Fprintf(out, "Domain:    https://%s\n", in.Domain)
+				shown := in.Domain
+				if t, err := app.TargetFor(d, in.DomainPort); err == nil {
+					switch t.Kind {
+					case spec.RouteHTTP, spec.RouteTLS:
+						shown = "https://" + in.Domain
+					case spec.RouteMinecraft:
+						shown = in.Domain + " (through the Minecraft router)"
+					default:
+						shown = in.Domain + " (DNS name only)"
+					}
+				}
+				fmt.Fprintf(out, "Domain:    %s; `anyserve dns %s` lists the DNS records\n", shown, in.Name)
 			}
 			if in.Isolation != "" {
 				fmt.Fprintf(out, "Isolation: %s (sees only %s)\n", in.Isolation, in.ServerDir)
@@ -609,7 +620,7 @@ func configCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&expose, "expose", nil, "open a private port to the network instead of this machine only (stacks; repeatable)")
-	cmd.Flags().StringVar(&domain, "domain", "", "serve the app over HTTPS at this domain (`anyserve https`)")
+	cmd.Flags().StringVar(&domain, "domain", "", "give the instance a domain: HTTPS for apps, the shared port for Minecraft, a DNS name otherwise (`anyserve dns`)")
 	cmd.Flags().StringVar(&domainPort, "domain-port", "", "which port the domain reaches (default: the web port)")
 	cmd.Flags().BoolVar(&noDomain, "no-domain", false, "stop serving the app at its domain")
 	cmd.Flags().BoolVar(&isolate, "isolate", false, "run this native server in a container that sees only its own folder")

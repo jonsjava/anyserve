@@ -199,7 +199,24 @@ type Port struct {
 	// Public says players need this port forwarded. Admin ports like RCON
 	// are usually not public.
 	Public bool `yaml:"public" json:"public"`
+	// Routing says how a domain can reach this port when several servers
+	// share one address: http (through the HTTPS proxy), tls (passed
+	// through by SNI on port 443), minecraft (by the hostname in the
+	// Minecraft handshake). Empty means a domain is only a DNS name for it.
+	Routing string `yaml:"routing,omitempty" json:"routing,omitempty"`
+	// SRV is the DNS SRV service a game looks up, e.g. _minecraft._tcp,
+	// so players can connect by name even on another port.
+	SRV string `yaml:"srv,omitempty" json:"srv,omitempty"`
 }
+
+// Routing kinds for Port.Routing.
+const (
+	RouteHTTP      = "http"
+	RouteTLS       = "tls"
+	RouteMinecraft = "minecraft"
+)
+
+var srvRe = regexp.MustCompile(`^_[a-z0-9][a-z0-9-]*\._(tcp|udp)$`)
 
 // File is a config file Anyserve manages. It works in one of two ways:
 //
@@ -604,6 +621,18 @@ func (d *Definition) Validate() error {
 		}
 		if pt.Protocol != "tcp" && pt.Protocol != "udp" && pt.Protocol != "both" {
 			add("%s: protocol must be tcp, udp or both", where)
+		}
+		switch pt.Routing {
+		case "":
+		case RouteHTTP, RouteTLS, RouteMinecraft:
+			if pt.Protocol == "udp" {
+				add("%s: routing %s needs a TCP port", where, pt.Routing)
+			}
+		default:
+			add("%s: routing must be http, tls or minecraft", where)
+		}
+		if pt.SRV != "" && !srvRe.MatchString(pt.SRV) {
+			add("%s: srv must look like _service._tcp or _service._udp", where)
 		}
 	}
 	if len(d.Ports) == 0 {

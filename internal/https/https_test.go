@@ -61,3 +61,33 @@ func TestCaddyCompose(t *testing.T) {
 		}
 	}
 }
+
+func TestRouter(t *testing.T) {
+	b, err := RouterRoutes(map[string]int{"b.example.com": 25566, "a.example.com": 25567})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"mappings\": {\n    \"a.example.com\": \"127.0.0.1:25567\",\n    \"b.example.com\": \"127.0.0.1:25566\"\n  }\n}\n"
+	if string(b) != want {
+		t.Errorf("routes:\n%s", b)
+	}
+	c := RouterCompose(1000, 1000, 25565)
+	for _, s := range []string{RouterImage, `user: "1000:1000"`, "read_only: true", "cap_drop: [ALL]", `"-port", "25565"`, "network_mode: host"} {
+		if !strings.Contains(c, s) {
+			t.Errorf("compose lacks %q", s)
+		}
+	}
+}
+
+func TestRouterDropped(t *testing.T) {
+	before := map[string]string{"a.example.com": "127.0.0.1:25566"}
+	if dropped(before, map[string]int{"a.example.com": 25566, "b.example.com": 25567}) {
+		t.Error("an added route needs no restart")
+	}
+	if !dropped(before, map[string]int{"b.example.com": 25567}) {
+		t.Error("a removed route needs a restart")
+	}
+	if !dropped(before, map[string]int{"a.example.com": 25570}) {
+		t.Error("a moved route needs a restart")
+	}
+}

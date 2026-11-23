@@ -57,6 +57,8 @@ type Config struct {
 	Remote RemoteConfig `json:"remote,omitempty"`
 	// HTTPS is the reverse proxy for apps' domains (`anyserve https`).
 	HTTPS HTTPSConfig `json:"https,omitempty"`
+	// Router shares the Minecraft port between servers by hostname.
+	Router RouterConfig `json:"router,omitempty"`
 	// Hosts are other machines this one manages (`anyserve remote add`).
 	Hosts []RemoteHost `json:"hosts,omitempty"`
 }
