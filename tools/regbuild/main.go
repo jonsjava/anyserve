@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jonsjava/anyserve/internal/registry"
@@ -117,6 +118,14 @@ func verifyIndex(path, pub, name string) error {
 	ix, err := registry.VerifyAndParse(registry.Source{Name: name, PublicKey: pub}, index, sig)
 	if err != nil {
 		return err
+	}
+	// The Anyserve that builds the index must be able to read all of it.
+	if len(ix.Skipped) > 0 {
+		var bad []string
+		for _, s := range ix.Skipped {
+			bad = append(bad, s.ID+": "+s.Reason)
+		}
+		return fmt.Errorf("%s: %d definitions can't be read:\n%s", path, len(bad), strings.Join(bad, "\n"))
 	}
 	fmt.Printf("%s: signature good, %d services, generated %s\n", path, len(ix.Services), ix.Generated)
 	return nil

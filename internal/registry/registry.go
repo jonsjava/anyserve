@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jonsjava/anyserve/internal/version"
 	"io"
 	"net/http"
 	"os"
@@ -42,6 +43,15 @@ type Index struct {
 	Name      string             `json:"name"`
 	Generated time.Time          `json:"generated"`
 	Services  []*spec.Definition `json:"services"`
+	// Skipped lists definitions in a downloaded index that this version of
+	// Anyserve can't use. Not part of the published format.
+	Skipped []Skipped `json:"-"`
+}
+
+// Skipped is a definition left out of a parsed index, and why.
+type Skipped struct {
+	ID     string
+	Reason string
 }
 
 // Find returns the service with the given id.
@@ -101,20 +111,56 @@ func (ix *Index) Marshal() ([]byte, error) {
 }
 
 // ParseIndex decodes and checks an index. Call it only on verified bytes.
+//
+// Each definition is decoded on its own. One that uses fields this version
+// of Anyserve doesn't know (a feature added later), fails its checks, or
+// requires a newer Anyserve is skipped and listed in Skipped, so a registry
+// that has moved ahead still offers everything else.
 func ParseIndex(data []byte) (*Index, error) {
-	var ix Index
-	if err := json.Unmarshal(data, &ix); err != nil {
+	return parseIndex(data, version.Current())
+}
+
+func parseIndex(data []byte, current string) (*Index, error) {
+	var raw struct {
+		Schema    int               `json:"schema"`
+		Name      string            `json:"name"`
+		Generated time.Time         `json:"generated"`
+		Services  []json.RawMessage `json:"services"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse index: %w", err)
 	}
-	if ix.Schema != IndexSchema {
-		return nil, fmt.Errorf("index schema %d is not supported by this version of Anyserve (want %d); try updating Anyserve", ix.Schema, IndexSchema)
+	if raw.Schema != IndexSchema {
+		return nil, fmt.Errorf("index schema %d is not supported by this version of Anyserve (want %d); try updating Anyserve", raw.Schema, IndexSchema)
 	}
-	for _, d := range ix.Services {
-		if err := d.Validate(); err != nil {
-			return nil, fmt.Errorf("index service %q: %w", d.ID, err)
+	ix := &Index{Schema: raw.Schema, Name: raw.Name, Generated: raw.Generated}
+	for i, r := range raw.Services {
+		var head struct {
+			ID string `json:"id"`
 		}
+		_ = json.Unmarshal(r, &head)
+		id := head.ID
+		if id == "" {
+			id = fmt.Sprintf("#%d", i+1)
+		}
+		var d spec.Definition
+		dec := json.NewDecoder(bytes.NewReader(r))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&d); err != nil {
+			ix.Skipped = append(ix.Skipped, Skipped{ID: id, Reason: "uses features this version of Anyserve doesn't have (" + err.Error() + ")"})
+			continue
+		}
+		if d.Requires != "" && !version.Satisfies(current, d.Requires) {
+			ix.Skipped = append(ix.Skipped, Skipped{ID: id, Reason: "needs Anyserve " + d.Requires + " or newer (this is " + current + ")"})
+			continue
+		}
+		if err := d.Validate(); err != nil {
+			ix.Skipped = append(ix.Skipped, Skipped{ID: id, Reason: "isn't valid for this version of Anyserve (" + problems(err) + ")"})
+			continue
+		}
+		ix.Services = append(ix.Services, &d)
 	}
-	return &ix, nil
+	return ix, nil
 }
 
 // GenerateKey creates a signing key pair. The private key is returned as a
@@ -320,4 +366,16 @@ func writeAtomic(p string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), p)
+}
+
+// problems flattens a Validate error into one line.
+func problems(err error) string {
+	var out []string
+	for _, l := range strings.Split(err.Error(), "\n") {
+		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "-"))
+		if l != "" && !strings.HasSuffix(l, ":") {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "; ")
 }

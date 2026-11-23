@@ -3,6 +3,7 @@ package registry
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -121,5 +122,49 @@ func TestEmbeddedSnapshotVerifies(t *testing.T) {
 	}
 	if len(ix.Services) == 0 {
 		t.Fatal("embedded index is empty")
+	}
+}
+
+// An index from a newer registry still loads: definitions this version
+// can't use are skipped, not the whole index.
+func TestParseIndexSkipsWhatItCantUse(t *testing.T) {
+	_, _, index, _ := buildSigned(t)
+	var raw map[string]any
+	if err := json.Unmarshal(index, &raw); err != nil {
+		t.Fatal(err)
+	}
+	services := raw["services"].([]any)
+	byID := map[string]map[string]any{}
+	for _, s := range services {
+		m := s.(map[string]any)
+		byID[m["id"].(string)] = m
+	}
+	byID["terraria"]["future_feature"] = true                                     // a field added later
+	byID["rust"]["requires"] = "99.0.0"                                           // a newer release
+	byID["valheim"]["settings"].([]any)[0].(map[string]any)["type"] = "telepathy" // a new value
+	changed, _ := json.Marshal(raw)
+
+	ix, err := parseIndex(changed, "v1.0.0")
+	if err != nil {
+		t.Fatalf("the index should still load: %v", err)
+	}
+	if got, want := len(ix.Services), len(services)-3; got != want {
+		t.Errorf("got %d services, want %d", got, want)
+	}
+	reasons := map[string]string{}
+	for _, s := range ix.Skipped {
+		reasons[s.ID] = s.Reason
+	}
+	for id, want := range map[string]string{"terraria": "future_feature", "rust": "needs Anyserve 99.0.0", "valheim": "server_name): type must be"} {
+		if !strings.Contains(reasons[id], want) {
+			t.Errorf("%s: reason %q should mention %q", id, reasons[id], want)
+		}
+	}
+	if _, ok := ix.Find("rust"); ok {
+		t.Error("a skipped definition must not be offered")
+	}
+	// A development build satisfies any requires.
+	if ix, _ := parseIndex(changed, "dev"); len(ix.Skipped) != 2 {
+		t.Errorf("dev build: got %d skipped, want 2", len(ix.Skipped))
 	}
 }

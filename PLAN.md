@@ -226,6 +226,18 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
   - Backup stops and restarts the stack, and restore brings the data back.
 - **Not set up:** voice (LiveKit), bots, push notifications (VAPID), mail, and the Discord bridge.
 
+### Session 3c (2026-11-23): older versions and newer registries
+- **Problem:** a build from before Session 3 rejected the entire published index, because a few definitions used features it didn't have. It fell back to its built-in 14 services and never saw the new ones, even those it could run.
+- **Fix:**
+  - Each definition is now decoded on its own and strictly. One with an unknown field, an unknown value, or a `requires` newer than the running version is skipped, and the rest loads.
+  - `available` warns about skipped definitions.
+  - `install` explains why and gives the update command.
+  - `update` keeps the installed definition and says why.
+  - `regbuild -verify` fails if the building version can't read every definition.
+- **New `requires` field** (an Anyserve release such as `0.2.0`), for changes older versions would read but get wrong.
+- **Version info:** the version moved to `internal/version`, and it falls back to Go's build info, so `go install ...@vX` builds know their version. Untagged builds count as newest.
+- **Still affected:** builds from before this change still drop the whole index; they need updating once.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)

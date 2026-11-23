@@ -165,3 +165,10 @@ func TestSettingConversion(t *testing.T) {
 		t.Errorf("got %v, %v", got, err)
 	}
 }
+
+func TestRequiresMustBeAVersion(t *testing.T) {
+	d := &Definition{Schema: 1, ID: "x", Name: "X", Description: "d", Version: "1", Kind: KindStack, Requires: "soon"}
+	if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "requires must be") {
+		t.Errorf("want a requires error, got %v", err)
+	}
+}

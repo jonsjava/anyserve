@@ -9,6 +9,7 @@ package spec
 
 import (
 	"fmt"
+	"github.com/jonsjava/anyserve/internal/version"
 	"math"
 	"os"
 	"path"
@@ -37,6 +38,10 @@ type Definition struct {
 	// Version is the definition's own version. Bump it when the definition
 	// changes in a way installed instances should pick up.
 	Version string `yaml:"version" json:"version"`
+	// Requires is the oldest Anyserve release that can install this
+	// definition (e.g. "0.2.0"), for changes older releases would read
+	// but get wrong. Older releases skip the definition and say to update.
+	Requires string `yaml:"requires,omitempty" json:"requires,omitempty"`
 	// Kind is "server" (the default) or "stack".
 	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
 	// Platforms lists the operating systems with a native server build.
@@ -375,6 +380,9 @@ func (d *Definition) Validate() error {
 	}
 	if strings.TrimSpace(d.Version) == "" {
 		add("version is required")
+	}
+	if d.Requires != "" && !version.Valid(d.Requires) {
+		add("requires must be an Anyserve release version like 0.2.0 (got %q)", d.Requires)
 	}
 	stack := false
 	switch d.Kind {
