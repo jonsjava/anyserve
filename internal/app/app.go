@@ -51,6 +51,10 @@ type Config struct {
 	// NotifyURL receives a plain-text POST summarising scheduled updates
 	// (an ntfy topic URL works as is).
 	NotifyURL string `json:"notify_url,omitempty"`
+	// Users may manage instances remotely (`anyserve users`).
+	Users []User `json:"users,omitempty"`
+	// Remote is the built-in SSH server's settings (`anyserve remote`).
+	Remote RemoteConfig `json:"remote,omitempty"`
 }
 
 func (a *App) configPath() string { return filepath.Join(a.Dirs.Config, "config.json") }

@@ -74,7 +74,7 @@ Run anyserve with no arguments for a guided install.`,
 		availableCmd(), infoCmd(), installCmd(), listCmd(), statusCmd(),
 		startCmd(), stopCmd(), restartCmd(), logsCmd(), updateCmd(),
 		configCmd(), portsCmd(), consoleCmd(), rconCmd(), sayCmd(),
-		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(),
+		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(), serveCmd(),
 		refreshCmd(), registryCmd(),
 		steamCmd(), targetsCmd(), runCmd(), versionCmd(),
 	)

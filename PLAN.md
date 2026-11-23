@@ -250,6 +250,19 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **Tested end to end** with a throwaway registry: a broken Gotify definition (same version, a command that can't start) was applied, failed its health check, was rolled back with its data and held. A fixed 3.1.1-2 then applied and cleared the hold. Timer enable/status/disable work.
 - **Not done:** native servers' program files can't be rolled back (only their data); `anyserve upgrade` for Anyserve itself waits for release binaries.
 
+### Session 4b (2026-11-23): host API (remote access step 2)
+- **`internal/api`:** JSON over HTTP. Routes:
+  - `GET /v1/whoami`, `/v1/instances`, `/v1/instances/{name}` (plus `/logs`, `/backups`, `/ports`);
+  - `POST .../start|stop|restart|update|backup|console`;
+  - files: `GET` (list or download), `PUT` (atomic upload), `DELETE`, `POST .../files/mkdir|rename`.
+- **Who's calling:** every request needs a caller in its context. The unix socket makes everyone the owner (an admin). The SSH server (next step) will attach the remote user.
+- **Access:** non-admins see only instances granted to them. Instances they can't manage answer 404, the same as unknown ones. Grants and admin flags are re-read from the config on every request, so revoking applies at once.
+- **Files:** all go through `os.Root` at the instance's server folder, so `..` and symlinks (even ones a game server plants) can't reach outside it. Downloads are sent as attachments with `nosniff` and a sandbox CSP.
+- **Other:** one change at a time per instance (a second answers 409); changes are written to `audit.log` in the data folder (time, user, request, status, duration).
+- **Users model** (`internal/app/users.go`): `Config.Users` (name, admin, keys, instances), grant/revoke and `CanManage`. The CLI for it comes with the SSH server.
+- **`anyserve serve`:** serves the API on `anyserve.sock` (mode 0600; it moves to `$XDG_RUNTIME_DIR/anyserve-<uid>/` when the path is too long for a socket).
+- **Decision:** the CLI keeps working directly, not through the API, so nothing needs a daemon running.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
@@ -274,7 +287,7 @@ Decisions:
 
 Steps, each its own pull request:
 1. ~~Scheduled updates~~ (Session 4)
-2. **Host API** (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
+2. ~~**Host API**~~ (Session 4b) (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
 3. **SSH server** (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
 4. **Client:** `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
 5. **Web UI** (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
