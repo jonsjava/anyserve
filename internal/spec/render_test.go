@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"path/filepath"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -53,6 +54,30 @@ func TestURLHostHelper(t *testing.T) {
 	} {
 		if got, _ := Render("t", `{{urlHost .Settings.u}}`, Context{Settings: map[string]any{"u": in}}); got != want {
 			t.Errorf("urlHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolvePortsClash(t *testing.T) {
+	d := &Definition{Name: "x", Ports: []Port{{Name: "game", Port: 25565, Protocol: "tcp"}, {Name: "rcon", Port: 25575, Protocol: "tcp"}, {Name: "query", Port: 25565, Protocol: "udp"}}}
+	if _, err := d.ResolvePorts(nil); err != nil {
+		t.Errorf("tcp and udp on one number should be fine: %v", err)
+	}
+	if _, err := d.ResolvePorts(map[string]int{"game": 25575}); err == nil {
+		t.Error("game and rcon on one TCP port wasn't refused")
+	}
+}
+
+func TestRegistryDefaultPortsDontClash(t *testing.T) {
+	files, _ := filepath.Glob(filepath.Join("..", "..", "registry", "services", "*.yaml"))
+	for _, f := range files {
+		d, err := LoadFile(f)
+		if err != nil {
+			t.Errorf("%s: %v", f, err)
+			continue
+		}
+		if _, err := d.ResolvePorts(nil); err != nil {
+			t.Errorf("%s: %v", filepath.Base(f), err)
 		}
 	}
 }

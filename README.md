@@ -220,6 +220,17 @@ sftp -P 7022 alice@box.example.com               # the files of alice's instance
 - **On the host itself**, `anyserve proxy` (no host) opens the same UI with full access.
 - **Everything remote users change is logged** to `audit.log` in the data folder.
 
+### Isolating native servers
+
+`anyserve install <game> --isolate` (or `anyserve config <name> --isolate` later)
+runs a native game server in a container that sees only its own server folder.
+It runs as your user, with no capabilities, so instances can't read each other's
+files or processes. The image is the definition's `container` hints (a base
+image plus packages), built locally once. Server files stay mounted, never baked
+in. Consoles, logs, backups and clean stops work as before, because Anyserve's
+supervisor stays outside the container. This needs Linux and Docker, and works
+for definitions with `container` hints.
+
 ## How it works
 
 - **Service definitions** (`registry/services/*.yaml`) describe where a

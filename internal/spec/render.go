@@ -267,7 +267,27 @@ func (d *Definition) ResolvePorts(overrides map[string]int) (map[string]int, err
 		}
 		out[p.Name] = n
 	}
+	// Two of the instance's own ports on one number clash unless one is
+	// TCP and the other UDP.
+	for i, a := range d.Ports {
+		for _, b := range d.Ports[i+1:] {
+			if out[a.Name] == out[b.Name] && protoOverlap(a.Protocol, b.Protocol) {
+				return nil, fmt.Errorf("ports %s and %s would both use %d; give one of them another number with --port", a.Name, b.Name, out[a.Name])
+			}
+		}
+	}
 	return out, nil
+}
+
+func protoOverlap(a, b string) bool {
+	norm := func(p string) string {
+		if p == "" {
+			return "tcp"
+		}
+		return p
+	}
+	a, b = norm(a), norm(b)
+	return a == b || a == "both" || b == "both"
 }
 
 // RandomPassword returns a random password made of unambiguous characters.

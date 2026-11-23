@@ -305,9 +305,24 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
   - the web path: TLS through the tunnel with and without a client certificate, a wrong token, another user's token, a revoked certificate, a foreign CA; the CA's name constraints.
 - **Default port** 7022, on 127.0.0.1 until `--listen` says otherwise.
 
+### Session 4d (2026-11-23): isolated native servers (step 7)
+- **`install --isolate`, `config --isolate/--no-isolate`:** a native server runs in a container built from its definition's `container` hints (base image plus Debian packages, built locally as `anyserve-native/<id>:<hash of hints>`). Server files are mounted, never baked in.
+- **Design:** the supervisor (`anyserve run` under systemd) stays on the host and starts the server as `docker run --rm -i --init`. Consoles (stdin, RCON), logs, saves, backups and clean stops are unchanged. The container:
+  - runs as the installing uid:gid, with `--cap-drop ALL`, no-new-privileges and a pids limit;
+  - mounts only the server folder (at the same path, so absolute paths in arguments still work), with `HOME` set to it;
+  - publishes the definition's ports (public ones on all addresses, private ones on 127.0.0.1);
+  - gets only the server's own environment, never the host's.
+
+  Launchers (`via`: java, dotnet…) come from the image's PATH. The container is removed before each start and after each stop.
+- **Fixed:** an instance's own ports could clash (Minecraft's game port moved onto its RCON port). `ResolvePorts` now refuses two ports on one number unless one is TCP and the other UDP. A test checks every registry definition's defaults.
+- **Tested:**
+  - Terraria: console, clean stop, backup. In the container, uid 1001, all capabilities dropped, one mount, and the host's home isn't visible.
+  - Mindustry: java from eclipse-temurin, console.
+  - Minecraft: the user accepted Mojang's EULA for this test; RCON console, clean save and stop.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
-2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
+2. ~~Native servers in containers~~ (`--isolate`, Session 4d); a Kubernetes target is still to do
 3. Release binaries from a tag-triggered workflow
 4. A Pelican egg importer that drafts definitions for review
 5. Several processes per server (DST's caves), more `set` formats (xml, properties, yaml), and a second install source for bring-your-own game data
@@ -335,7 +350,7 @@ Steps, each its own pull request:
 4. ~~**Client:**~~ (Session 4c) `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
 5. ~~**Web UI**~~ (Session 4c) (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
 6. ~~**SFTP**~~ (Session 4c): in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
-7. **Native servers in containers** (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
+7. ~~**Native servers in containers**~~ (Session 4d) (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
 
 ## Decided since the start
 

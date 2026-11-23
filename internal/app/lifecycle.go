@@ -38,6 +38,9 @@ type InstallRequest struct {
 	SteamOutput bool
 	// Expose opens these private ports to the network (stacks only).
 	Expose []string
+	// Isolate runs a native server in a container that sees only its own
+	// folder.
+	Isolate bool
 }
 
 // Plan is a checked install request, ready to run. The wizard builds one
@@ -91,6 +94,11 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 		return nil, err
 	}
 	p := &Plan{Req: req, Entry: e, Target: t, Settings: settings, Ports: ports}
+	if req.Isolate {
+		if err := target.CanIsolate(e.Def); err != nil {
+			return nil, fmt.Errorf("--isolate: %w", err)
+		}
+	}
 	if err := checkExpose(e.Def, req.Expose); err != nil {
 		return nil, err
 	}
@@ -217,6 +225,17 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 	if err := a.installFiles(ctx, in, d, p.Req.SteamOutput); err != nil {
 		cleanup()
 		return nil, err
+	}
+	if p.Req.Isolate {
+		in.Isolation = target.IsolationContainer
+		if _, err := target.EnsureNativeImage(d, a.Out); err != nil {
+			cleanup()
+			return nil, err
+		}
+		if err := a.Store.Save(in, d); err != nil {
+			cleanup()
+			return nil, err
+		}
 	}
 	if err := p.Target.Register(in, d, a.targetEnv()); err != nil {
 		cleanup()
@@ -676,14 +695,17 @@ func (a *App) Run(ctx context.Context, name string) error {
 	if err := a.writeConfig(in, d); err != nil {
 		return err
 	}
+	isolated := in.Isolation == target.IsolationContainer
 	command, args := cmdPath, r.Args
 	if len(r.Via) > 0 {
 		var chain []string
 		for _, v := range r.Via {
 			l := spec.Launchers[v]
-			prog, err := exec.LookPath(l.Program)
-			if err != nil {
-				return fmt.Errorf("%s needs %s, which isn't installed: install %s", d.Name, l.Program, l.Install)
+			prog := l.Program // in a container, found on the image's PATH
+			if !isolated {
+				if prog, err = exec.LookPath(l.Program); err != nil {
+					return fmt.Errorf("%s needs %s, which isn't installed: install %s", d.Name, l.Program, l.Install)
+				}
 			}
 			chain = append(chain, prog)
 			chain = append(chain, l.Args...)
@@ -706,6 +728,22 @@ func (a *App) Run(ctx context.Context, name string) error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+r.Env[k])
+	}
+	if isolated {
+		if err := target.CanIsolate(d); err != nil {
+			return fmt.Errorf("can't run %s in a container: %w", in.Name, err)
+		}
+		image, err := target.EnsureNativeImage(d, a.Out)
+		if err != nil {
+			return err
+		}
+		var own []string
+		for _, k := range keys {
+			own = append(own, k+"="+r.Env[k])
+		}
+		target.RemoveIsolated(in)
+		defer target.RemoveIsolated(in)
+		command, args = target.IsolatedCommand(in, d, image, workdir, command, args, own)
 	}
 	timeout := time.Duration(d.Stop.TimeoutSeconds) * time.Second
 	var stopFunc func() error
@@ -820,6 +858,8 @@ type Changes struct {
 	// Expose and Unexpose open private ports to the network, or close
 	// them again (stacks only).
 	Expose, Unexpose []string
+	// Isolate turns container isolation on or off (nil leaves it).
+	Isolate *bool
 }
 
 // checkExpose checks that ports named for --expose exist and can be
@@ -894,6 +934,19 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		return errors.New(strings.Join(conflicts, "\n"))
 	}
 	in.Settings, in.Ports = merged, resolvedPorts
+	if c.Isolate != nil {
+		if *c.Isolate {
+			if err := target.CanIsolate(d); err != nil {
+				return err
+			}
+			if _, err := target.EnsureNativeImage(d, a.Out); err != nil {
+				return err
+			}
+			in.Isolation = target.IsolationContainer
+		} else {
+			in.Isolation = ""
+		}
+	}
 	if err := a.Store.Save(in, d); err != nil {
 		return err
 	}

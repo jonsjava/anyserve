@@ -42,6 +42,9 @@ type Instance struct {
 	Updated   time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
+	// Isolation is "container" when a native server runs in a container
+	// that sees only its server folder; empty runs it directly.
+	Isolation string `json:"isolation,omitempty"`
 	// AutoUpdate is the scheduled-update policy: off, notify or apply.
 	// Empty means notify.
 	AutoUpdate string `json:"auto_update,omitempty"`
