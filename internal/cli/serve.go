@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jonsjava/anyserve/internal/api"
 	"github.com/jonsjava/anyserve/internal/app"
+	"github.com/jonsjava/anyserve/internal/remote"
+	"github.com/jonsjava/anyserve/internal/spec"
 )
 
 // apiServer builds the API server with an audit log in the data folder.
@@ -20,8 +23,23 @@ func apiServer(a *app.App) (*api.Server, io.Closer, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &api.Server{NewApp: app.New, Audit: audit}
+	s := &api.Server{NewApp: app.New, Audit: audit, IssueCert: issueWebCert}
 	return s, audit, nil
+}
+
+// issueWebCert issues a 90-day browser client certificate from this
+// host's web CA.
+func issueWebCert(a *app.App, user string) (*api.IssuedCert, error) {
+	host, _ := os.Hostname()
+	ca, err := remote.LoadOrCreateWebCA(a.Dirs.Config, host)
+	if err != nil {
+		return nil, err
+	}
+	cc, err := ca.IssueClientCert(user, 90*24*time.Hour, spec.RandomPassword(16))
+	if err != nil {
+		return nil, err
+	}
+	return &api.IssuedCert{Serial: cc.Serial, NotAfter: cc.NotAfter.Format(time.DateOnly), P12: cc.P12, Password: cc.Password}, nil
 }
 
 func serveCmd() *cobra.Command {

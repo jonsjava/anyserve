@@ -236,3 +236,21 @@ func (c *Config) UserForKey(key ssh.PublicKey) (*User, bool) {
 	}
 	return nil, false
 }
+
+// IsAdmin reports whether a caller has admin power right now: the host's
+// own user, or an admin user with their browser client certificate. It
+// re-reads the config, so a demotion applies at once.
+func (a *App) IsAdmin(c Caller) bool {
+	if c.Local {
+		return true
+	}
+	if !c.Cert {
+		return false
+	}
+	cfg, err := a.LoadConfig()
+	if err != nil {
+		return false
+	}
+	u, err := cfg.FindUser(c.Name)
+	return err == nil && u.Admin
+}
