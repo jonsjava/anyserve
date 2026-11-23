@@ -292,6 +292,10 @@ func (a *App) syncProxy() error {
 	if err != nil {
 		return err
 	}
+	passthrough, err := a.sitesOf(spec.RouteTLS)
+	if err != nil {
+		return err
+	}
 	provider := cfg.HTTPSProvider()
 	m := https.Managed{Dir: a.httpsDir()}
 	if provider != https.Caddy {
@@ -318,7 +322,10 @@ func (a *App) syncProxy() error {
 		}
 		return nil
 	}
-	if len(sites) > 0 && !m.Running() {
+	if len(passthrough) > 0 && !https.HaveCaddyL4() {
+		a.Log("Building Caddy with TLS passthrough (once; this takes a few minutes)")
+	}
+	if len(sites)+len(passthrough) > 0 && !m.Running() {
 		for _, port := range []int{80, 443} {
 			if !https.PortFree(port) {
 				return fmt.Errorf("port %d is taken by another program, so Caddy can't serve HTTPS. Stop it, or use it as your proxy instead (`anyserve https use nginx` or `traefik` writes its config)", port)
@@ -326,7 +333,7 @@ func (a *App) syncProxy() error {
 		}
 		a.Log("Starting Caddy for HTTPS (certificates come from Let's Encrypt; ports 80 and 443 must reach this machine)")
 	}
-	return m.Apply(cfg.HTTPS.Email, sites)
+	return m.Apply(cfg.HTTPS.Email, sites, passthrough)
 }
 
 // SetHTTPSProvider changes the proxy and syncs it.
@@ -345,6 +352,11 @@ func (a *App) SetHTTPSProvider(provider, email string, setEmail bool) error {
 	if provider == https.None {
 		if sites, _ := a.Sites(); len(sites) > 0 {
 			return fmt.Errorf("%d instances have domains; remove them first (`anyserve config <name> --no-domain`)", len(sites))
+		}
+	}
+	if provider != https.Caddy {
+		if tls, _ := a.sitesOf(spec.RouteTLS); len(tls) > 0 {
+			return fmt.Errorf("%s passes TLS through by name, which only Anyserve's Caddy does; remove its domain first (`anyserve config %s --no-domain`)", tls[0].Instance, tls[0].Instance)
 		}
 	}
 	cfg.HTTPS.Provider = provider
