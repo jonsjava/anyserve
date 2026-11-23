@@ -177,3 +177,105 @@ func (s SteamCMD) run(ctx context.Context, exe string, args []string) error {
 	}
 	return fmt.Errorf("%w; last output:\n%s", err, strings.Join(tail, "\n"))
 }
+
+// PublicBuild asks Steam for the build id currently published on an app's
+// branch ("public" unless a beta is named), without downloading the app.
+// user is "" for anonymous.
+func (s SteamCMD) PublicBuild(ctx context.Context, appID int, branch, user string) (string, error) {
+	exe, err := s.Ensure(ctx)
+	if err != nil {
+		return "", err
+	}
+	if user == "" {
+		user = "anonymous"
+	}
+	if branch == "" {
+		branch = "public"
+	}
+	cmd := exec.CommandContext(ctx, exe, "+login", user, "+app_info_update", "1", "+app_info_print", strconv.Itoa(appID), "+quit")
+	cmd.Dir = s.Dir
+	out, err := cmd.CombinedOutput()
+	if id := branchBuild(string(out), branch); id != "" {
+		return id, nil
+	}
+	if err == nil {
+		err = fmt.Errorf("no build id for branch %q in SteamCMD's app info", branch)
+	}
+	return "", fmt.Errorf("SteamCMD app info for %d: %w", appID, err)
+}
+
+// branchBuild finds depots → branches → <branch> → buildid in SteamCMD's
+// app_info_print output (Valve's KeyValues text format).
+func branchBuild(text, branch string) string {
+	i := strings.Index(text, `"branches"`)
+	if i < 0 {
+		return ""
+	}
+	toks := vdfTokens(text[i+len(`"branches"`):])
+	// toks: { "public" { "buildid" "123" ... } "beta" { ... } }
+	depth := 0
+	current := ""
+	for j := 0; j < len(toks); j++ {
+		switch t := toks[j]; t {
+		case "{":
+			depth++
+		case "}":
+			depth--
+			if depth == 0 {
+				return ""
+			}
+			if depth == 1 {
+				current = ""
+			}
+		default:
+			if depth == 1 && current == "" && j+1 < len(toks) && toks[j+1] == "{" {
+				current = t
+				continue
+			}
+			if depth == 2 && current == branch && t == "buildid" && j+1 < len(toks) {
+				return toks[j+1]
+			}
+			if depth == 2 && j+1 < len(toks) && toks[j+1] != "{" && toks[j+1] != "}" {
+				j++ // skip the value
+			}
+		}
+	}
+	return ""
+}
+
+func vdfTokens(s string) []string {
+	var out []string
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '{', '}':
+			out = append(out, string(c))
+		case '"':
+			j := i + 1
+			var b strings.Builder
+			for ; j < len(s) && s[j] != '"'; j++ {
+				if s[j] == '\\' && j+1 < len(s) {
+					j++
+				}
+				b.WriteByte(s[j])
+			}
+			out = append(out, b.String())
+			i = j
+		}
+	}
+	return out
+}
+
+var manifestBuildRe = regexp.MustCompile(`"buildid"\s+"(\d+)"`)
+
+// InstalledBuild reads the build id SteamCMD recorded when it last
+// installed an app into dir, or "" if it can't tell.
+func InstalledBuild(dir string, appID int) string {
+	b, err := os.ReadFile(filepath.Join(dir, "steamapps", fmt.Sprintf("appmanifest_%d.acf", appID)))
+	if err != nil {
+		return ""
+	}
+	if m := manifestBuildRe.FindSubmatch(b); m != nil {
+		return string(m[1])
+	}
+	return ""
+}

@@ -48,6 +48,9 @@ type Config struct {
 	// servers that can't download anonymously. SteamCMD keeps the session;
 	// the password is never stored here.
 	SteamUser string `json:"steam_user,omitempty"`
+	// NotifyURL receives a plain-text POST summarising scheduled updates
+	// (an ntfy topic URL works as is).
+	NotifyURL string `json:"notify_url,omitempty"`
 }
 
 func (a *App) configPath() string { return filepath.Join(a.Dirs.Config, "config.json") }

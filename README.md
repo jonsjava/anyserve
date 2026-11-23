@@ -144,6 +144,7 @@ service's quirks are noted in its definition and shown by `anyserve info`.
 | `say <name> <msg>` | Broadcast a chat message |
 | `backup` / `backups` / `restore` | Back up an instance, list backups, restore one (a safety backup is taken first) |
 | `remove <name>` | Stop and delete an instance. Backups are kept |
+| `auto-update set/run/status/enable/disable/notify` | Scheduled updates: per instance `off`, `notify` (default) or `apply`. See [Scheduled updates](#scheduled-updates) |
 | `steam login <user>` / `steam logout` | Sign in through SteamCMD for servers that need an account. Anyserve stores only the user name |
 | `refresh` | Download the latest definitions from every registry |
 | `registry list/add/remove` | Manage extra registries |
@@ -151,6 +152,31 @@ service's quirks are noted in its definition and shown by `anyserve info`.
 | `version` | Show the version |
 
 Run `anyserve <command> --help` for details and examples.
+
+## Scheduled updates
+
+```bash
+anyserve auto-update enable                 # a systemd user timer, 04:00 daily by default (--at)
+anyserve auto-update set friends apply      # this instance updates itself
+anyserve auto-update notify https://ntfy.sh/your-private-topic
+anyserve auto-update status
+```
+
+Each run refreshes the registry and checks every instance for a changed
+definition (a new version, or new image digests) and, for Steam servers, a
+newer Steam build. What happens next depends on the instance's policy:
+
+- `off`: not checked.
+- `notify` (the default): recorded in `list`, `status` and `auto-update status`, and posted to the notify URL.
+- `apply`: backed up, updated and then watched. If the server isn't healthy within
+  10 minutes (`--health-limit`), or doesn't stay healthy for a minute (`--settle`),
+  the update is rolled back: the old definition and the pre-update backup are put
+  back and the update is held, so later runs skip it. `anyserve update <name>`
+  tries a held update anyway.
+
+For apps, a rollback is complete: the old definition names the old image digests.
+For native servers, only the data comes back; the server's program files stay at
+the new version.
 
 ## How it works
 

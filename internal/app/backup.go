@@ -72,12 +72,16 @@ func (a *App) MakeBackup(name string) (Backup, error) {
 		if err := t.Stop(in); err != nil {
 			return Backup{}, err
 		}
-		defer func() {
-			a.Log("Starting %s again", in.Name)
-			if err := t.Start(in); err != nil {
-				a.Log("Couldn't start %s again: %v", in.Name, err)
-			}
-		}()
+		// Start it again only if it was up. A failed stack stays down, so
+		// a restore (which backs up first) never runs against live data.
+		if state == "running" || state == "partly running" || state == "starting" {
+			defer func() {
+				a.Log("Starting %s again", in.Name)
+				if err := t.Start(in); err != nil {
+					a.Log("Couldn't start %s again: %v", in.Name, err)
+				}
+			}()
+		}
 	} else if state == "running" && d.Console.Save != "" {
 		if err := a.sendLine(in, d, d.Console.Save); err != nil {
 			a.Log("Couldn't ask the server to save first: %v", err)

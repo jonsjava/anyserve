@@ -176,3 +176,88 @@ func currentUser() string {
 	}
 	return "$USER"
 }
+
+const (
+	updateService = "anyserve-autoupdate.service"
+	updateTimer   = "anyserve-autoupdate.timer"
+)
+
+// UpdateTimerUnits renders the scheduled-update service and timer.
+// Exported for tests.
+func UpdateTimerUnits(env Env, onCalendar string) (service, timer string) {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "# Managed by Anyserve (`anyserve auto-update`).\n[Unit]\nDescription=Anyserve: scheduled updates\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\n")
+	if env.Home != "" {
+		fmt.Fprintf(&b, "Environment=%s\n", systemdQuote("ANYSERVE_HOME="+env.Home))
+	}
+	fmt.Fprintf(&b, "ExecStart=%s auto-update run\nNoNewPrivileges=yes\n", systemdQuote(env.Exe))
+	service = b.String()
+	timer = fmt.Sprintf("# Managed by Anyserve (`anyserve auto-update`).\n[Unit]\nDescription=Anyserve: scheduled updates\n\n[Timer]\nOnCalendar=%s\nRandomizedDelaySec=30m\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n", onCalendar)
+	return service, timer
+}
+
+// InstallUpdateTimer writes and starts the scheduled-update timer.
+func InstallUpdateTimer(env Env, onCalendar string) error {
+	if out, err := exec.Command("systemd-analyze", "calendar", onCalendar).CombinedOutput(); err != nil {
+		return fmt.Errorf("%q isn't a schedule systemd understands (try daily, or \"*-*-* 04:00\"): %s", onCalendar, strings.TrimSpace(string(out)))
+	}
+	dir, err := unitDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	svc, tmr := UpdateTimerUnits(env, onCalendar)
+	if err := os.WriteFile(filepath.Join(dir, updateService), []byte(svc), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, updateTimer), []byte(tmr), 0o644); err != nil {
+		return err
+	}
+	if err := systemctl("daemon-reload"); err != nil {
+		return err
+	}
+	return systemctl("enable", "--now", updateTimer)
+}
+
+// RemoveUpdateTimer stops and deletes the scheduled-update timer.
+func RemoveUpdateTimer() error {
+	systemctl("disable", "--now", updateTimer)
+	dir, err := unitDir()
+	if err != nil {
+		return err
+	}
+	for _, f := range []string{updateTimer, updateService} {
+		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return systemctl("daemon-reload")
+}
+
+// UpdateTimerInfo describes the timer's schedule and next run, or "" if
+// it isn't installed.
+func UpdateTimerInfo() string {
+	out, err := exec.Command("systemctl", "--user", "show", updateTimer, "-p", "LoadState", "-p", "ActiveState", "-p", "TimersCalendar", "-p", "NextElapseUSecRealtime", "--timestamp=pretty").Output()
+	if err != nil {
+		return ""
+	}
+	props := map[string]string{}
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		k, v, _ := strings.Cut(l, "=")
+		props[k] = v
+	}
+	if props["LoadState"] != "loaded" {
+		return ""
+	}
+	cal := props["TimersCalendar"]
+	if i := strings.Index(cal, "OnCalendar="); i >= 0 {
+		cal = strings.TrimSpace(strings.SplitN(cal[i+len("OnCalendar="):], ";", 2)[0])
+	}
+	s := fmt.Sprintf("%s (%s)", cal, props["ActiveState"])
+	if n := props["NextElapseUSecRealtime"]; n != "" {
+		s += ", next run " + n
+	}
+	return s
+}
