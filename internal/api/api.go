@@ -56,6 +56,8 @@ type Server struct {
 	// IssueCert issues a browser client certificate for an admin (nil:
 	// not offered).
 	IssueCert func(a *app.App, user string) (*IssuedCert, error)
+	// Fleet is set on a fleet manager.
+	Fleet Fleet
 
 	locks   sync.Map // instance name → *sync.Mutex
 	jobs    sync.Map // job id → *Job
@@ -87,6 +89,10 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /v1/instances", s.admin(s.install))
 	m.HandleFunc("DELETE /v1/instances/{name}", s.instance(s.adminOnly(s.locked(s.remove))))
 	m.HandleFunc("GET /v1/jobs/{id}", s.admin(s.job))
+	m.HandleFunc("GET /v1/nodes", s.admin(s.nodesList))
+	m.HandleFunc("POST /v1/fleet/token", s.admin(s.fleetToken))
+	m.HandleFunc("DELETE /v1/nodes/{node}", s.admin(s.nodeRemove))
+	m.HandleFunc("/v1/nodes/{node}/{rest...}", s.admin(s.nodeProxy))
 	m.HandleFunc("GET /v1/users", s.admin(s.usersList))
 	m.HandleFunc("POST /v1/users", s.admin(s.usersCreate))
 	m.HandleFunc("PATCH /v1/users/{user}", s.admin(s.usersChange))

@@ -57,6 +57,7 @@ func startRemote(ctx context.Context, cmd *cobra.Command, a *app.App, s *api.Ser
 		Audit:   s.Audit,
 		Log:     func(f string, args ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", args...) },
 	}
+	s.Fleet = srv
 	fmt.Fprintf(cmd.OutOrStdout(), "SSH server listening on %s (host key %s)\n", l.Addr(), remote.Fingerprint(key.PublicKey()))
 	go func() { errs <- srv.Serve(ctx, l) }()
 	return nil

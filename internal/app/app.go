@@ -61,6 +61,8 @@ type Config struct {
 	Router RouterConfig `json:"router,omitempty"`
 	// Hosts are other machines this one manages (`anyserve remote add`).
 	Hosts []RemoteHost `json:"hosts,omitempty"`
+	// Fleet links this machine to others (`anyserve fleet`).
+	Fleet FleetConfig `json:"fleet,omitempty"`
 }
 
 func (a *App) configPath() string { return filepath.Join(a.Dirs.Config, "config.json") }

@@ -10,7 +10,9 @@
 <header class="top">
   <div class="brand"><span class="logo" aria-hidden="true">▣</span> Anyserve <span id="host" class="muted"></span></div>
   <nav id="adminnav" class="topnav" hidden>
+    <select id="node" aria-label="Machine" hidden></select>
     <button data-view="servers" aria-current="true">Servers</button>
+    <button data-view="machines">Machines</button>
     <button data-view="users">Users</button>
     <button data-view="new" class="primary">New server</button>
   </nav>
@@ -108,6 +110,18 @@
       <div><button type="submit">Add user</button></div>
     </form>
     <div id="u-cert" class="notice" hidden></div>
+  </section>
+</main>
+
+<main class="page" id="view-machines" hidden>
+  <section class="detail">
+    <h2>Machines</h2>
+    <p class="muted small">Other machines join this one and are managed from here: pick one in the menu at the top to see and install its servers.</p>
+    <table class="grid"><thead><tr><th>Machine</th><th>Status</th><th>Version</th><th>Joined</th><th></th></tr></thead><tbody id="m-list"></tbody></table>
+    <h3>Add a machine</h3>
+    <p class="muted small">Run one command on the new machine (Linux or macOS, as the user that should run the servers). It installs Anyserve, joins this machine and starts on boot.</p>
+    <div><button id="m-add" class="primary">Get the command</button></div>
+    <div id="m-join" class="notice" hidden></div>
   </section>
 </main>
 

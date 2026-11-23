@@ -156,6 +156,7 @@ Each service's quirks are noted in its definition and shown by `anyserve info`.
 | `https use/status/sync` | The HTTPS proxy for apps' domains: Caddy (default, run by Anyserve), your own nginx or Traefik, or none. See [HTTPS for apps](#https-for-apps) |
 | `remote enable/disable/status` | This host's built-in SSH server for remote users |
 | `remote add/list/remove` | Hosts you manage from this computer |
+| `fleet token/join/list/remove/leave` | Manage several machines from one. See [More machines](#more-machines) |
 | `upgrade [--check]` | Update Anyserve itself to the latest signed release |
 | `proxy [host]` | The web UI on your own 127.0.0.1, for this machine or a remote host |
 | `port-forward <host> <instance> <port>` | Reach a remote instance's TCP port on this computer |
@@ -282,6 +283,41 @@ sftp -P 7022 alice@box.example.com               # the files of alice's instance
   vouch for any real website.
 - **On the host itself**, `anyserve proxy` (no host) opens the same UI with full access.
 - **Everything remote users change is logged** to `audit.log` in the data folder.
+
+### More machines
+
+One machine (the manager) can manage others: their servers show up in its web UI
+under a machine picker at the top, with the same install, file manager, logs and
+console. Workers don't need an open port: each one dials the manager's SSH port
+and keeps that connection open.
+
+On the manager, with remote access on (`anyserve remote enable --listen 0.0.0.0:7022`),
+open **Machines → Get the command** in the web UI, or run:
+
+```bash
+anyserve fleet token
+```
+
+It prints one command to run on the new machine, as the user that should run its servers:
+
+```bash
+curl -fsSL https://github.com/jonsjava/anyserve/releases/latest/download/install.sh | sh -s -- fleet join 203.0.113.5:7022 <token>
+```
+
+That installs Anyserve, joins, and starts it as a service.
+
+- **The token works once, for an hour**. It also carries the manager's key fingerprint, so the
+  new machine can't be tricked into joining an impostor.
+- **The manager's address** comes from remote access's listen address, and its public address is
+  filled in when that's 0.0.0.0. Set it with `anyserve fleet token --addr host:port` (it's
+  remembered) when workers reach it another way, e.g. through a VPN or a DNS name.
+- **`anyserve fleet list`** shows each machine and whether it's connected. **`anyserve fleet remove
+  <name>`** (or **Remove** in the web UI) cuts one off. Its servers keep running, but you can't
+  manage them from the manager any more. On the worker, `anyserve fleet leave` forgets the manager.
+- **Only admins** (and the manager's owner) can reach other machines. A worker trusts the manager
+  as its owner, so treat the manager like the most sensitive machine in the fleet.
+- **`--no-service`** joins without installing the service, e.g. in a container. Keep
+  `anyserve serve` running there yourself.
 
 ### Isolating native servers
 

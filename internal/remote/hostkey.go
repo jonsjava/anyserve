@@ -73,3 +73,12 @@ func loadOrCreate(p, comment string) (ssh.Signer, error) {
 	}
 	return ssh.NewSignerFromKey(priv)
 }
+
+// NodeKeyPath is where a fleet worker keeps the key it signs in to its
+// manager with.
+func NodeKeyPath(configDir string) string { return filepath.Join(configDir, "fleet", "node_ed25519") }
+
+// LoadOrCreateNodeKey returns this worker's fleet key.
+func LoadOrCreateNodeKey(configDir string) (ssh.Signer, error) {
+	return loadOrCreate(NodeKeyPath(configDir), "anyserve fleet node")
+}

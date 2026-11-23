@@ -58,6 +58,7 @@ type Server struct {
 	webConn  chan net.Conn
 	once     sync.Once
 	sessions sessions
+	fleet    fleet
 }
 
 func (s *Server) audit(format string, args ...any) {
@@ -80,6 +81,17 @@ func (s *Server) config(remote net.Addr) *ssh.ServerConfig {
 			c, err := a.LoadConfig()
 			if err != nil {
 				return nil, err
+			}
+			switch meta.User() {
+			case JoinUser:
+				// Anyone may try to join; only a valid token gets anywhere.
+				return &ssh.Permissions{Extensions: map[string]string{"join": "1", "key": authorized(key)}}, nil
+			case NodeUser:
+				n, ok := c.NodeForKey(authorized(key))
+				if !ok {
+					return nil, errors.New("unknown node")
+				}
+				return &ssh.Permissions{Extensions: map[string]string{"node": n.Name}}, nil
 			}
 			u, ok := c.UserForKey(key)
 			if !ok || u.Name != meta.User() {
@@ -141,6 +153,18 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	}
 	c.SetDeadline(time.Time{})
 	s.limiter.ok(ip)
+	if conn.Permissions.Extensions["join"] != "" {
+		s.handleJoin(conn, chans, reqs)
+		return
+	}
+	if conn.Permissions.Extensions["node"] != "" {
+		go func() {
+			<-ctx.Done()
+			conn.Close()
+		}()
+		s.handleNode(conn, chans, reqs)
+		return
+	}
 	user := conn.Permissions.Extensions["user"]
 	s.audit("%s %s connected (%s)", c.RemoteAddr(), user, conn.ClientVersion())
 	defer s.audit("%s %s disconnected", c.RemoteAddr(), user)

@@ -88,8 +88,13 @@ func proxyLocal(ctx context.Context, cmd *cobra.Command, a *app.App, listen stri
 	if err != nil {
 		return err
 	}
+	handler := s.Handler()
+	// The running service holds the fleet's connections; use it when it's up.
+	if c, err := localAPI(a); err == nil {
+		handler = c.proxy()
+	}
 	srv := &http.Server{
-		Handler:           webui.Handler(s.Handler(), webui.FixedToken(token)),
+		Handler:           webui.Handler(handler, webui.FixedToken(token)),
 		ReadHeaderTimeout: 30 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return api.WithCaller(ctx, app.Owner) },
 	}
