@@ -66,12 +66,22 @@ templates. They can use:
 | `.Dir` | The absolute server folder on the host. |
 | `.Name` | The instance name. |
 | `.OS` | The host OS (`linux`, `windows`, `darwin`). |
+| `.UID`, `.GID` | The user and group the instance runs as (stack containers too). |
 
 Helpers: `yesno`, `truefalse` and `onezero` turn a bool into `yes`/`no`,
 `true`/`false` or `1`/`0`. `lower` and `upper` change case,
 and `hasPrefix` tests the start of a value (`{{if hasPrefix .Settings.url "https://"}}`). `json` renders a
 value as a JSON literal, which gives a quoted, escaped string for JSON, HJSON
-and YAML config files.
+and YAML config files. `xml` escapes text for XML.
+
+A few helpers derive values:
+
+| Helper | Gives |
+|---|---|
+| `urlHost .Settings.url` | The host (and port) of an address: `https://chat.example.com/` gives `chat.example.com`. |
+| `mul .Settings.limit_mb 1048576` | Whole numbers multiplied, e.g. megabytes into bytes. |
+| `sha256 .Settings.seed` | 64 hex characters. Use it for a key that must be hex, or to derive several keys from one generated secret: `{{sha256 (print .Settings.seed "/realtime")}}`. |
+| `jwt <secret> <role>` | An HS256 JSON Web Token carrying `role`, signed with the secret, for API keys such as Supabase's `anon` and `service_role` keys. Its times are fixed, so it's the same every time it's rendered. |
 
 In `run.args`, an argument that renders to an empty string is dropped, so an
 optional flag and its value can be written as:
@@ -114,6 +124,7 @@ install:
       linux: 1.2/Linux
       "*": 1.2/Common         # any OS without its own entry
     format: tar.xz            # only if the URL doesn't end in the type
+    to: vendor/data           # optional folder to extract into
 ```
 
 Supported archives: `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` and `.txz`. When a
@@ -396,7 +407,7 @@ newer files can corrupt a database.
 schema: 1
 id: lemmy
 kind: stack
-# no platforms, install, steps or run
+# no platforms, steps or run; install only for pinned data files
 
 ports:
   - { name: http, port: 10633, protocol: tcp, public: false }
@@ -448,8 +459,9 @@ backup:
 | `volumes` | Mounts from the server folder (`path`), or a folder the user chose in a `folder` setting (`setting`). A path listed in `files` is mounted as a file; any other path is a folder, created before the stack starts. An optional folder setting left empty skips its mount. Backups only cover the server folder, not chosen folders. |
 | `ports` | Publishes a port from `ports` (by name) from the container's `target` port. Each port is published once. |
 | `depends_on` | Starts these services first, waiting until they're healthy if they have a health check. |
-| `health` | A command run inside the container; exit status 0 means healthy. |
+| `health` | A command run inside the container; exit status 0 means healthy. `disable: true` instead turns off a check built into the image, for a container that doesn't do what that check expects. |
 | `shm_mb` | Shared memory size, which databases often need raised. |
+| `once` | A job that runs to completion on every start, such as database migrations, instead of a long-running service. Services that list it in `depends_on` wait until it finishes successfully. It can't publish ports or have a health check. A job that finished doesn't count as stopped in `anyserve status`; one that failed makes the stack failed. |
 
 Anyserve writes the Compose file itself, and some things are fixed so that
 definitions can't change them:
@@ -471,6 +483,11 @@ A folder from a `folder` setting is mounted like this:
         - { path: data, target: /data }
         - { setting: music_folder, target: /music, read_only: true }
 ```
+
+A stack can't download software, but it may fetch pinned data files to mount,
+with `install.archive` (its `sha256` is required) and `install.downloads`. For
+example, a database's migrations from the app's release, at the same version as
+its images. Downloads are mounted as files.
 
 Images that insist on running as root won't work. Prefer images that run as
 any user, such as `nginxinc/nginx-unprivileged` instead of `nginx`.

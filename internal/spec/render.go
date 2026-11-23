@@ -2,11 +2,16 @@ package spec
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"math/big"
+	"net/url"
 	"strconv"
 	"strings"
 	"text/template"
@@ -24,10 +29,22 @@ type Context struct {
 	Ports    map[string]int
 	// Message is set only when rendering console.say.
 	Message string
+	// UID and GID are the user and group the instance runs as (stack
+	// containers run as this user too).
+	UID, GID int
 }
 
 var funcs = template.FuncMap{
 	"lower": strings.ToLower,
+	// urlHost returns the host (and port, if any) of an address such as
+	// https://chat.example.com/, or the text itself if it has no scheme.
+	"urlHost": func(v any) string {
+		s := fmt.Sprint(v)
+		if u, err := url.Parse(s); err == nil && u.Host != "" {
+			return u.Host
+		}
+		return strings.TrimSuffix(s, "/")
+	},
 	// xml escapes text for XML attribute values and elements.
 	"xml": func(v any) string {
 		var b strings.Builder
@@ -44,6 +61,19 @@ var funcs = template.FuncMap{
 		return string(b), err
 	},
 	"upper": strings.ToUpper,
+	// mul multiplies whole numbers, e.g. megabytes into bytes.
+	"mul": func(a, b int) int { return a * b },
+	// sha256 returns the hex SHA-256 of text: 64 hex characters, for keys
+	// that must be hex, derived from a generated secret.
+	"sha256": func(v any) string {
+		sum := sha256.Sum256([]byte(fmt.Sprint(v)))
+		return hex.EncodeToString(sum[:])
+	},
+	// jwt returns an HS256 JSON Web Token signed with secret, carrying
+	// the given role, for API keys such as Supabase's anon and
+	// service_role keys. It's deterministic (fixed issue and expiry
+	// times), so the key doesn't change when the config is rewritten.
+	"jwt": signJWT,
 	// yesno renders a bool as "yes"/"no"; truefalse as "true"/"false";
 	// onezero as "1"/"0". Servers disagree on which they want.
 	"yesno": func(v any) string {
@@ -265,4 +295,27 @@ func truthy(v any) bool {
 		return b
 	}
 	return false
+}
+
+// jwtIssued and jwtExpires are the fixed times in signJWT's tokens:
+// 2024-01-01 and 2124-01-01 (UTC).
+const (
+	jwtIssued  = 1704067200
+	jwtExpires = 4859740800
+)
+
+func signJWT(secret, role string) (string, error) {
+	if secret == "" || role == "" {
+		return "", fmt.Errorf("jwt needs a secret and a role")
+	}
+	enc := base64.RawURLEncoding
+	header := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	claims, err := json.Marshal(map[string]any{"role": role, "iss": "anyserve", "iat": jwtIssued, "exp": jwtExpires})
+	if err != nil {
+		return "", err
+	}
+	unsigned := header + "." + enc.EncodeToString(claims)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(unsigned))
+	return unsigned + "." + enc.EncodeToString(mac.Sum(nil)), nil
 }

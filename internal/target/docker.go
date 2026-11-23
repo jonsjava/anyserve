@@ -146,6 +146,19 @@ type psEntry struct {
 	State    string `json:"State"`
 	Health   string `json:"Health"`
 	ExitCode int    `json:"ExitCode"`
+	Labels   string `json:"Labels"`
+}
+
+// jobLabel marks containers of once jobs.
+const jobLabel = "dev.anyserve.job"
+
+func (e psEntry) job() bool {
+	for _, l := range strings.Split(e.Labels, ",") {
+		if l == jobLabel+"=true" {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *docker) Status(in *instance.Instance) Status {
@@ -176,7 +189,7 @@ func summarize(entries []psEntry) Status {
 		return Status{State: "stopped"}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Service < entries[j].Service })
-	running, failed := 0, []string{}
+	running, services, failed := 0, 0, []string{}
 	var parts []string
 	for _, e := range entries {
 		s := e.State
@@ -184,6 +197,11 @@ func summarize(entries []psEntry) Status {
 			s += " (" + e.Health + ")"
 		}
 		parts = append(parts, e.Service+": "+s)
+		if e.job() && e.State == "exited" && e.ExitCode == 0 {
+			// A job that finished: neither running nor a problem.
+			continue
+		}
+		services++
 		switch {
 		case e.State == "running" && e.Health != "unhealthy":
 			running++
@@ -195,7 +213,7 @@ func summarize(entries []psEntry) Status {
 	switch {
 	case len(failed) > 0:
 		return Status{State: "failed", Detail: detail}
-	case running == len(entries):
+	case running == services && services > 0:
 		return Status{State: "running", Detail: detail}
 	case running == 0:
 		return Status{State: "stopped", Detail: detail}
@@ -220,6 +238,7 @@ type composeService struct {
 	Environment map[string]string            `yaml:"environment,omitempty"`
 	User        string                       `yaml:"user"`
 	Restart     string                       `yaml:"restart"`
+	Labels      map[string]string            `yaml:"labels,omitempty"`
 	CapDrop     []string                     `yaml:"cap_drop"`
 	SecurityOpt []string                     `yaml:"security_opt"`
 	Volumes     []composeVolume              `yaml:"volumes,omitempty"`
@@ -246,9 +265,10 @@ type composePort struct {
 }
 
 type composeHealth struct {
-	Test     []string `yaml:"test"`
-	Interval string   `yaml:"interval"`
-	Retries  int      `yaml:"retries"`
+	Test     []string `yaml:"test,omitempty"`
+	Interval string   `yaml:"interval,omitempty"`
+	Retries  int      `yaml:"retries,omitempty"`
+	Disable  bool     `yaml:"disable,omitempty"`
 }
 
 // Compose renders the compose file for a stack instance. Exported for tests.
@@ -264,9 +284,10 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	healthy := map[string]bool{}
+	healthy, jobs := map[string]bool{}, map[string]bool{}
 	for _, s := range services {
-		healthy[s.Name] = s.Health != nil
+		healthy[s.Name] = s.Health != nil && !s.Health.Disable
+		jobs[s.Name] = s.Once
 	}
 	grace := d.Stop.TimeoutSeconds
 	if grace <= 0 {
@@ -292,6 +313,12 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 		}
 		if len(cs.Environment) == 0 {
 			cs.Environment = nil
+		}
+		if s.Once {
+			// A job: runs to completion on every start. The label tells
+			// Status that a clean exit is expected.
+			cs.Restart = "no"
+			cs.Labels = map[string]string{jobLabel: "true"}
 		}
 		for _, v := range s.Volumes {
 			if v.Setting != "" {
@@ -328,13 +355,18 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 			cs.DependsOn = map[string]map[string]string{}
 			for _, dep := range s.DependsOn {
 				cond := "service_started"
-				if healthy[dep] {
+				switch {
+				case jobs[dep]:
+					cond = "service_completed_successfully"
+				case healthy[dep]:
 					cond = "service_healthy"
 				}
 				cs.DependsOn[dep] = map[string]string{"condition": cond}
 			}
 		}
-		if h := s.Health; h != nil {
+		if h := s.Health; h != nil && h.Disable {
+			cs.Healthcheck = &composeHealth{Disable: true}
+		} else if h != nil {
 			interval := h.IntervalSeconds
 			if interval == 0 {
 				interval = 10

@@ -106,6 +106,9 @@ type Archive struct {
 	// replaced if they already exist, such as config files the archive
 	// ships with.
 	Keep []string `yaml:"keep,omitempty" json:"keep,omitempty"`
+	// To is the folder (relative to the server folder) to extract into.
+	// Empty means the server folder itself.
+	To string `yaml:"to,omitempty" json:"to,omitempty"`
 }
 
 // Step is one built-in install step. Steps run in order after the files are
@@ -400,6 +403,17 @@ func (d *Definition) Validate() error {
 	// Install source.
 	switch {
 	case stack:
+		// Stacks get their software from images, but may fetch pinned
+		// data files (such as database migrations) to mount into them.
+		if d.Install.SteamCMD != nil {
+			add("install.steamcmd: stacks get their software from images")
+		}
+		if a := d.Install.Archive; a != nil {
+			validateArchive(a, add)
+			if a.SHA256 == "" {
+				add("install.archive.sha256 is required for stacks")
+			}
+		}
 	case d.Install.SteamCMD != nil && d.Install.Archive != nil:
 		add("install: set only one of steamcmd or archive")
 	case d.Install.SteamCMD != nil:
@@ -423,35 +437,7 @@ func (d *Definition) Validate() error {
 			add("install.steamcmd.beta must be a plain branch name")
 		}
 	case d.Install.Archive != nil:
-		a := d.Install.Archive
-		if !strings.HasPrefix(a.URL, "https://") {
-			add("install.archive.url must be an https:// URL")
-		}
-		if a.SHA256 != "" && !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.SHA256) {
-			add("install.archive.sha256 must be 64 lowercase hex characters")
-		}
-		switch a.Format {
-		case "":
-			if !ArchiveURL(a.URL) {
-				add("install.archive.url must end in .zip, .tar.gz, .tgz, .tar.xz or .txz, or set install.archive.format")
-			}
-		case "zip", "tar.gz", "tar.xz":
-		default:
-			add("install.archive.format must be zip, tar.gz or tar.xz")
-		}
-		for _, k := range a.Keep {
-			if err := checkRelPath(k); err != nil {
-				add("install.archive.keep: %v", err)
-			}
-		}
-		for os, sub := range a.Subdir {
-			if os != "*" && !isKnownOS(os) {
-				add("install.archive.subdir: unknown OS %q", os)
-			}
-			if err := checkRelPath(sub); err != nil {
-				add("install.archive.subdir[%s]: %v", os, err)
-			}
-		}
+		validateArchive(d.Install.Archive, add)
 	case len(d.Install.Downloads) > 0:
 		// A server that is a single file, such as a Java .jar.
 	default:
@@ -895,4 +881,41 @@ func (r Run) Requires() []Launcher {
 		}
 	}
 	return out
+}
+
+// validateArchive checks an install.archive entry.
+func validateArchive(a *Archive, add func(string, ...any)) {
+	if !strings.HasPrefix(a.URL, "https://") {
+		add("install.archive.url must be an https:// URL")
+	}
+	if a.SHA256 != "" && !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.SHA256) {
+		add("install.archive.sha256 must be 64 lowercase hex characters")
+	}
+	switch a.Format {
+	case "":
+		if !ArchiveURL(a.URL) {
+			add("install.archive.url must end in .zip, .tar.gz, .tgz, .tar.xz or .txz, or set install.archive.format")
+		}
+	case "zip", "tar.gz", "tar.xz":
+	default:
+		add("install.archive.format must be zip, tar.gz or tar.xz")
+	}
+	for _, k := range a.Keep {
+		if err := checkRelPath(k); err != nil {
+			add("install.archive.keep: %v", err)
+		}
+	}
+	for os, sub := range a.Subdir {
+		if os != "*" && !isKnownOS(os) {
+			add("install.archive.subdir: unknown OS %q", os)
+		}
+		if err := checkRelPath(sub); err != nil {
+			add("install.archive.subdir[%s]: %v", os, err)
+		}
+	}
+	if a.To != "" {
+		if err := checkRelPath(a.To); err != nil {
+			add("install.archive.to: %v", err)
+		}
+	}
 }

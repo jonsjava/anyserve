@@ -64,7 +64,10 @@ func (a *App) MakeBackup(name string) (Backup, error) {
 	if len(d.Backup.Paths) == 0 {
 		return Backup{}, fmt.Errorf("%s's definition doesn't say what to back up", d.Name)
 	}
-	if d.Backup.StopFirst && t.Status(in).State == "running" {
+	state := t.Status(in).State
+	// Anything but "stopped" may have a container (a database) still
+	// writing, including "failed" and "partly running" stacks.
+	if d.Backup.StopFirst && state != "stopped" {
 		a.Log("Stopping %s for a consistent backup", in.Name)
 		if err := t.Stop(in); err != nil {
 			return Backup{}, err
@@ -75,7 +78,7 @@ func (a *App) MakeBackup(name string) (Backup, error) {
 				a.Log("Couldn't start %s again: %v", in.Name, err)
 			}
 		}()
-	} else if t.Status(in).State == "running" && d.Console.Save != "" {
+	} else if state == "running" && d.Console.Save != "" {
 		if err := a.sendLine(in, d, d.Console.Save); err != nil {
 			a.Log("Couldn't ask the server to save first: %v", err)
 		} else {

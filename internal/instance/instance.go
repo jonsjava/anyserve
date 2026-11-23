@@ -204,7 +204,7 @@ func (in *Instance) Context(d *spec.Definition, goos string) (spec.Context, erro
 	if err != nil {
 		return spec.Context{}, err
 	}
-	return spec.Context{Name: in.Name, Dir: in.ServerDir, OS: goos, Settings: settings, Ports: ports}, nil
+	return spec.Context{Name: in.Name, Dir: in.ServerDir, OS: goos, Settings: settings, Ports: ports, UID: os.Getuid(), GID: os.Getgid()}, nil
 }
 
 func writeFile(p string, data []byte, mode os.FileMode) error {

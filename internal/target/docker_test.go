@@ -162,3 +162,77 @@ func TestComposeExpose(t *testing.T) {
 		t.Errorf("exposed port still bound to 127.0.0.1:\n%s", c)
 	}
 }
+
+func TestComposeOnceJob(t *testing.T) {
+	d := stackDef()
+	d.Stack.Services = append(d.Stack.Services, spec.StackService{Name: "migrate", Image: img, Once: true, DependsOn: []string{"db"}})
+	d.Stack.Services[1].DependsOn = []string{"db", "migrate"}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	b, err := Compose(&instance.Instance{Name: "x", Dir: dir, ServerDir: dir}, d, 1001, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := string(b)
+	for _, want := range []string{"condition: service_completed_successfully", `restart: "no"`, jobLabel + `: "true"`} {
+		if !strings.Contains(c, want) {
+			t.Errorf("missing %q in:\n%s", want, c)
+		}
+	}
+	d.Stack.Services[2].Ports = []spec.ServicePort{{Port: "admin", Target: 1}}
+	if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "once job") {
+		t.Errorf("a once job with ports should be refused, got %v", err)
+	}
+}
+
+func TestSummarizeJobs(t *testing.T) {
+	done := psEntry{Service: "migrate", State: "exited", Labels: "a=b," + jobLabel + "=true"}
+	if got := summarize([]psEntry{{Service: "a", State: "running"}, done}).State; got != "running" {
+		t.Errorf("a finished job should not stop the stack counting as running, got %s", got)
+	}
+	failed := done
+	failed.ExitCode = 1
+	if got := summarize([]psEntry{{Service: "a", State: "running"}, failed}).State; got != "failed" {
+		t.Errorf("a failed job should fail the stack, got %s", got)
+	}
+}
+
+func TestStackPinnedFiles(t *testing.T) {
+	d := stackDef()
+	d.Install.Archive = &spec.Archive{URL: "https://example.com/src.tar.gz", To: "src"}
+	if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "sha256 is required for stacks") {
+		t.Errorf("an unpinned archive should be refused, got %v", err)
+	}
+	d.Install.Archive.SHA256 = strings.Repeat("a", 64)
+	d.Install.Downloads = []spec.Download{{URL: "https://example.com/x.sql", SHA256: strings.Repeat("b", 64), To: "sql/x.sql"}}
+	if err := d.Validate(); err != nil {
+		t.Errorf("pinned files should be allowed: %v", err)
+	}
+	d.Install.SteamCMD = &spec.SteamCMD{AppID: 1}
+	if err := d.Validate(); err == nil {
+		t.Error("steamcmd should be refused for stacks")
+	}
+}
+
+func TestComposeHealthDisable(t *testing.T) {
+	d := stackDef()
+	d.Stack.Services[0].Health = &spec.HealthCheck{Disable: true}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	b, err := Compose(&instance.Instance{Name: "x", Dir: dir, ServerDir: dir}, d, 1001, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := string(b)
+	if !strings.Contains(c, "disable: true") || strings.Contains(c, "service_healthy") {
+		t.Errorf("want the image's check disabled and no wait for health:\n%s", c)
+	}
+	d.Stack.Services[0].Health.Command = []string{"x"}
+	if err := d.Validate(); err == nil {
+		t.Error("command with disable should be refused")
+	}
+}

@@ -46,6 +46,10 @@ type StackService struct {
 	Health    *HealthCheck `yaml:"health,omitempty" json:"health,omitempty"`
 	// ShmMB sets the shared memory size, which databases often need raised.
 	ShmMB int `yaml:"shm_mb,omitempty" json:"shm_mb,omitempty"`
+	// Once marks a job that runs to completion on every start, such as
+	// database migrations, instead of a long-running service. Services
+	// that depend on it wait until it has finished successfully.
+	Once bool `yaml:"once,omitempty" json:"once,omitempty"`
 }
 
 // Volume mounts a folder or file from the instance's server directory.
@@ -72,9 +76,13 @@ type ServicePort struct {
 // HealthCheck runs a command inside the container. Exit status 0 means
 // healthy.
 type HealthCheck struct {
-	Command         []string `yaml:"command" json:"command"`
-	IntervalSeconds int      `yaml:"interval_seconds,omitempty" json:"interval_seconds,omitempty"`
-	Retries         int      `yaml:"retries,omitempty" json:"retries,omitempty"`
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
+	// Disable turns off a health check built into the image, for a
+	// container that doesn't do what the image's check expects (a worker
+	// started from a server's image, say).
+	Disable         bool `yaml:"disable,omitempty" json:"disable,omitempty"`
+	IntervalSeconds int  `yaml:"interval_seconds,omitempty" json:"interval_seconds,omitempty"`
+	Retries         int  `yaml:"retries,omitempty" json:"retries,omitempty"`
 }
 
 // IsStack reports whether the definition is a container stack.
@@ -87,9 +95,6 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 	if d.Stack == nil || len(d.Stack.Services) == 0 {
 		add("stack.services: list at least one container")
 		return
-	}
-	if d.Install.SteamCMD != nil || d.Install.Archive != nil || len(d.Install.Downloads) > 0 {
-		add("install: stacks get their software from images; leave install out")
 	}
 	if len(d.Steps) > 0 {
 		add("steps: not used by stacks")
@@ -168,7 +173,10 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 			}
 		}
 		if h := s.Health; h != nil {
-			if len(h.Command) == 0 {
+			switch {
+			case h.Disable && len(h.Command) > 0:
+				add("%s.health: set command or disable, not both", where)
+			case !h.Disable && len(h.Command) == 0:
 				add("%s.health.command is required", where)
 			}
 			for j, c := range h.Command {
@@ -179,6 +187,9 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 			if h.IntervalSeconds < 0 || h.Retries < 0 {
 				add("%s.health: interval_seconds and retries must not be negative", where)
 			}
+		}
+		if s.Once && (len(s.Ports) > 0 || (s.Health != nil && !s.Health.Disable)) {
+			add("%s: a once job can't publish ports or have a health check", where)
 		}
 		if s.ShmMB < 0 {
 			add("%s.shm_mb must not be negative", where)
@@ -192,10 +203,15 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 }
 
 // IsFileVolume reports whether a volume path is one of the definition's
-// files, so it's mounted as a single file rather than a folder.
+// files or downloads, so it's mounted as a single file rather than a folder.
 func (d *Definition) IsFileVolume(p string) bool {
 	for _, f := range d.Files {
 		if path.Clean(f.Path) == path.Clean(p) {
+			return true
+		}
+	}
+	for _, dl := range d.Install.Downloads {
+		if path.Clean(dl.To) == path.Clean(p) {
 			return true
 		}
 	}
