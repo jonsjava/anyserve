@@ -55,6 +55,8 @@ type Config struct {
 	Users []User `json:"users,omitempty"`
 	// Remote is the built-in SSH server's settings (`anyserve remote`).
 	Remote RemoteConfig `json:"remote,omitempty"`
+	// HTTPS is the reverse proxy for apps' domains (`anyserve https`).
+	HTTPS HTTPSConfig `json:"https,omitempty"`
 	// Hosts are other machines this one manages (`anyserve remote add`).
 	Hosts []RemoteHost `json:"hosts,omitempty"`
 }

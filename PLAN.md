@@ -320,6 +320,25 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
   - Mindustry: java from eclipse-temurin, console.
   - Minecraft: the user accepted Mojang's EULA for this test; RCON console, clean save and stop.
 
+### Session 4e (2026-11-23): HTTPS proxy (the user asked: Caddy by default, another or none as options)
+- **`anyserve https use caddy|nginx|traefik|none [--email]`, `https status`, `https sync`; `install --domain [--domain-port]`, `config --domain/--domain-port/--no-domain`.**
+- **caddy (default):** Anyserve runs `caddy:2.10.2-alpine` (pinned) from `<data>/https/`:
+  - host networking, to reach apps on 127.0.0.1 and take ports 80 and 443;
+  - the user's uid, `cap_drop: ALL` plus `NET_BIND_SERVICE`, read-only root and a tmpfs /tmp;
+  - the admin API on a unix socket in its config folder, so it takes no port;
+  - changes reload in place;
+  - it runs only while some app has a domain.
+
+  No-new-privileges can't be set for this container: the image's caddy binary binds low ports through a file capability, which no-new-privileges would ignore.
+- **nginx / traefik:** Anyserve writes `anyserve-nginx.conf` (server blocks with certbot paths, WebSocket headers and redirects) or `anyserve-traefik.yml` (a file provider assuming entry point `websecure` and resolver `letsencrypt`), and rewrites it whenever domains change.
+- **Which port a domain reaches:** `--domain-port`, else a port named `http`/`web`, else the only private TCP port; otherwise it asks. Domains are validated and unique across instances, and setting one is refused when the provider is none.
+- **Before starting Caddy,** Anyserve checks that ports 80 and 443 are free and, if not, suggests using that proxy instead.
+- **Tested:**
+  - Renderers, domain validation and port choice in unit tests.
+  - With the real binary: install with `--domain` (Caddy refused politely because this machine's port 80 is taken); `https use nginx`/`traefik` write correct files; `none` is refused while domains exist.
+  - The managed compose run on spare port 444: Caddy as uid 1001 with only NET_BIND_SERVICE, read-only, proxied to Gotify (200), and a reload through the unix socket works.
+  - A full Let's Encrypt run needs a public DNS name, so it isn't tested.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. ~~Native servers in containers~~ (`--isolate`, Session 4d); a Kubernetes target is still to do

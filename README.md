@@ -145,6 +145,7 @@ service's quirks are noted in its definition and shown by `anyserve info`.
 | `backup` / `backups` / `restore` | Back up an instance, list backups, restore one (a safety backup is taken first) |
 | `remove <name>` | Stop and delete an instance. Backups are kept |
 | `users add/list/grant/revoke/admin/cert/cert-revoke` | Who may manage instances remotely. See [Remote access](#remote-access) |
+| `https use/status/sync` | The HTTPS proxy for apps' domains: Caddy (default, run by Anyserve), your own nginx or Traefik, or none. See [HTTPS for apps](#https-for-apps) |
 | `remote enable/disable/status` | This host's built-in SSH server for remote users |
 | `remote add/list/remove` | Hosts you manage from this computer |
 | `proxy [host]` | The web UI on your own 127.0.0.1, for this machine or a remote host |
@@ -183,6 +184,25 @@ newer Steam build. What happens next depends on the instance's policy:
 For apps, a rollback is complete: the old definition names the old image digests.
 For native servers, only the data comes back; the server's program files stay at
 the new version.
+
+## HTTPS for apps
+
+```bash
+anyserve install vaultwarden --domain vault.example.com
+anyserve config gotify --domain push.example.com     # later, or --no-domain
+anyserve https use caddy --email you@example.com     # optional: Let's Encrypt notices
+```
+
+Apps keep listening on 127.0.0.1. A domain puts the app behind an HTTPS reverse
+proxy with a free Let's Encrypt certificate. By default that's Caddy, which
+Anyserve runs for you: one container, pinned by digest, running as your user with
+nothing but permission to use ports 80 and 443, and only while some app has a
+domain. The domain's DNS must point at this machine, and ports 80 and 443 must
+reach it.
+
+Already run a proxy? `anyserve https use nginx` or `anyserve https use traefik`
+writes a config file for it instead (`anyserve https status` shows where) and
+keeps it up to date as domains change. `anyserve https use none` turns domains off.
 
 ## Remote access
 

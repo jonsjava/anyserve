@@ -41,6 +41,9 @@ type InstallRequest struct {
 	// Isolate runs a native server in a container that sees only its own
 	// folder.
 	Isolate bool
+	// Domain serves the app over HTTPS through the proxy, forwarding to
+	// DomainPort (empty picks the web port).
+	Domain, DomainPort string
 }
 
 // Plan is a checked install request, ready to run. The wizard builds one
@@ -97,6 +100,11 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 	if req.Isolate {
 		if err := target.CanIsolate(e.Def); err != nil {
 			return nil, fmt.Errorf("--isolate: %w", err)
+		}
+	}
+	if req.Domain != "" {
+		if err := a.checkDomain(&instance.Instance{Name: req.Name}, e.Def, req.Domain, req.DomainPort); err != nil {
+			return nil, fmt.Errorf("--domain: %w", err)
 		}
 	}
 	if err := checkExpose(e.Def, req.Expose); err != nil {
@@ -190,6 +198,8 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		Settings:          map[string]string{},
 		Ports:             p.Ports,
 		Expose:            p.Req.Expose,
+		Domain:            p.Req.Domain,
+		DomainPort:        p.Req.DomainPort,
 		Installed:         now,
 		Updated:           now,
 	}
@@ -242,6 +252,13 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		return nil, fmt.Errorf("register with %s: %w", p.Target.Name(), err)
 	}
 	a.Log("Installed. Server files are in %s", in.ServerDir)
+	if in.Domain != "" {
+		if err := a.SyncHTTPS(); err != nil {
+			a.Log("HTTPS for %s isn't set up: %v", in.Domain, err)
+		} else {
+			a.Log("https://%s will reach %s once the domain's DNS points here", in.Domain, in.Name)
+		}
+	}
 	if p.Req.Start {
 		if err := p.Target.Start(in); err != nil {
 			return in, fmt.Errorf("installed, but starting failed: %w", err)
@@ -860,6 +877,9 @@ type Changes struct {
 	Expose, Unexpose []string
 	// Isolate turns container isolation on or off (nil leaves it).
 	Isolate *bool
+	// Domain sets (or, empty, removes) the HTTPS domain; nil leaves it.
+	Domain     *string
+	DomainPort *string
 }
 
 // checkExpose checks that ports named for --expose exist and can be
@@ -934,6 +954,24 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		return errors.New(strings.Join(conflicts, "\n"))
 	}
 	in.Settings, in.Ports = merged, resolvedPorts
+	domainChanged := false
+	if c.Domain != nil || c.DomainPort != nil {
+		dom, dport := in.Domain, in.DomainPort
+		if c.Domain != nil {
+			dom = strings.ToLower(strings.TrimSpace(*c.Domain))
+		}
+		if c.DomainPort != nil {
+			dport = *c.DomainPort
+		}
+		if err := a.checkDomain(in, d, dom, dport); err != nil {
+			return err
+		}
+		in.Domain, in.DomainPort = dom, dport
+		if dom == "" {
+			in.DomainPort = ""
+		}
+		domainChanged = true
+	}
 	if c.Isolate != nil {
 		if *c.Isolate {
 			if err := target.CanIsolate(d); err != nil {
@@ -957,6 +995,14 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		// Settings, ports and exposure live in the compose file.
 		if err := t.Register(in, d, a.targetEnv()); err != nil {
 			return err
+		}
+	}
+	if domainChanged || len(ports) > 0 {
+		if err := a.SyncHTTPS(); err != nil {
+			return fmt.Errorf("saved, but the HTTPS proxy wasn't updated: %w", err)
+		}
+		if domainChanged && len(settings) == 0 && len(ports) == 0 && c.Isolate == nil && len(c.Expose) == 0 && len(c.Unexpose) == 0 {
+			return nil // nothing about the app itself changed
 		}
 	}
 	if t.Status(in).State == "running" {
@@ -984,6 +1030,11 @@ func (a *App) Remove(name string) error {
 	}
 	if customDir {
 		a.Log("Server files in %s were left in place", in.ServerDir)
+	}
+	if in.Domain != "" {
+		if err := a.SyncHTTPS(); err != nil {
+			a.Log("Couldn't take %s off the HTTPS proxy: %v", in.Domain, err)
+		}
 	}
 	return nil
 }
