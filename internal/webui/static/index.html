@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anyserve</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true">▣</span> Anyserve <span id="host" class="muted"></span></div>
+  <div id="who" class="muted"></div>
+</header>
+<main class="layout">
+  <section class="list" aria-label="Instances">
+    <div class="list-head"><h2>Instances</h2><span id="count" class="muted"></span></div>
+    <div id="instances" role="list"></div>
+    <p id="empty" class="muted" hidden>No instances you can manage on this host.</p>
+  </section>
+  <section id="detail" class="detail" hidden aria-live="polite">
+    <div class="detail-head">
+      <div>
+        <h2 id="d-name"></h2>
+        <div id="d-sub" class="muted"></div>
+      </div>
+      <div class="actions">
+        <button data-act="start">Start</button>
+        <button data-act="stop">Stop</button>
+        <button data-act="restart">Restart</button>
+        <button data-act="backup">Back up</button>
+        <button data-act="update">Update</button>
+      </div>
+    </div>
+    <div id="d-state" class="state-line"></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-tab="logs">Logs</button>
+      <button role="tab" data-tab="console">Console</button>
+      <button role="tab" data-tab="files">Files</button>
+      <button role="tab" data-tab="backups">Backups</button>
+    </nav>
+    <div class="panel" data-panel="overview">
+      <table class="kv"><tbody id="d-overview"></tbody></table>
+      <h3>Ports</h3>
+      <table class="grid"><thead><tr><th>Name</th><th>Port</th><th>Protocol</th><th>Reach</th><th>What</th></tr></thead><tbody id="d-ports"></tbody></table>
+      <p class="muted small">Reach a TCP port from your computer with <code>anyserve port-forward &lt;host&gt; <span class="iname"></span> &lt;port&gt;</code>.</p>
+    </div>
+    <div class="panel" data-panel="logs" hidden>
+      <div class="row"><button id="logs-refresh">Refresh</button><label><input type="checkbox" id="logs-follow"> Refresh every 3 s</label></div>
+      <pre id="logs" class="out"></pre>
+    </div>
+    <div class="panel" data-panel="console" hidden>
+      <pre id="console-out" class="out"></pre>
+      <form id="console-form" class="row">
+        <input id="console-in" autocomplete="off" placeholder="Console command" aria-label="Console command">
+        <button type="submit">Send</button>
+      </form>
+      <p id="console-note" class="muted small"></p>
+    </div>
+    <div class="panel" data-panel="files" hidden>
+      <div class="row wrap">
+        <nav id="crumbs" class="crumbs" aria-label="Folder"></nav>
+        <span class="spacer"></span>
+        <button id="f-mkdir">New folder</button>
+        <label class="button">Upload<input type="file" id="f-upload" multiple hidden></label>
+      </div>
+      <table class="grid files"><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="f-list"></tbody></table>
+    </div>
+    <div class="panel" data-panel="backups" hidden>
+      <table class="grid"><thead><tr><th>Backup</th><th>Created</th><th>Size</th></tr></thead><tbody id="b-list"></tbody></table>
+      <p class="muted small">Restoring needs the host's owner (<code>anyserve restore</code>), since it replaces data.</p>
+    </div>
+    <pre id="d-log" class="out small" hidden></pre>
+  </section>
+  <section id="welcome" class="detail welcome">
+    <p class="muted">Choose an instance.</p>
+  </section>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

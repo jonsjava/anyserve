@@ -144,6 +144,13 @@ service's quirks are noted in its definition and shown by `anyserve info`.
 | `say <name> <msg>` | Broadcast a chat message |
 | `backup` / `backups` / `restore` | Back up an instance, list backups, restore one (a safety backup is taken first) |
 | `remove <name>` | Stop and delete an instance. Backups are kept |
+| `users add/list/grant/revoke/admin/cert/cert-revoke` | Who may manage instances remotely. See [Remote access](#remote-access) |
+| `https use/status/sync` | The HTTPS proxy for apps' domains: Caddy (default, run by Anyserve), your own nginx or Traefik, or none. See [HTTPS for apps](#https-for-apps) |
+| `remote enable/disable/status` | This host's built-in SSH server for remote users |
+| `remote add/list/remove` | Hosts you manage from this computer |
+| `proxy [host]` | The web UI on your own 127.0.0.1, for this machine or a remote host |
+| `port-forward <host> <instance> <port>` | Reach a remote instance's TCP port on this computer |
+| `serve` | The API on a private socket, plus the SSH server when remote access is on (installed as a service by `remote enable`) |
 | `auto-update set/run/status/enable/disable/notify` | Scheduled updates: per instance `off`, `notify` (default) or `apply`. See [Scheduled updates](#scheduled-updates) |
 | `steam login <user>` / `steam logout` | Sign in through SteamCMD for servers that need an account. Anyserve stores only the user name |
 | `refresh` | Download the latest definitions from every registry |
@@ -177,6 +184,72 @@ newer Steam build. What happens next depends on the instance's policy:
 For apps, a rollback is complete: the old definition names the old image digests.
 For native servers, only the data comes back; the server's program files stay at
 the new version.
+
+## HTTPS for apps
+
+```bash
+anyserve install vaultwarden --domain vault.example.com
+anyserve config gotify --domain push.example.com     # later, or --no-domain
+anyserve https use caddy --email you@example.com     # optional: Let's Encrypt notices
+```
+
+Apps keep listening on 127.0.0.1. A domain puts the app behind an HTTPS reverse
+proxy with a free Let's Encrypt certificate. By default that's Caddy, which
+Anyserve runs for you: one container, pinned by digest, running as your user with
+nothing but permission to use ports 80 and 443, and only while some app has a
+domain. The domain's DNS must point at this machine, and ports 80 and 443 must
+reach it.
+
+Already run a proxy? `anyserve https use nginx` or `anyserve https use traefik`
+writes a config file for it instead (`anyserve https status` shows where) and
+keeps it up to date as domains change. `anyserve https use none` turns domains off.
+
+## Remote access
+
+Share a host with friends without exposing a web panel to the internet. It works
+like `kubectl proxy`: Anyserve runs its own SSH server (keys only, no shell, no
+root, no OS accounts), and each person's web UI and forwarded ports open on
+their own computer's 127.0.0.1.
+
+On the host:
+
+```bash
+anyserve users add alice --key alice.pub
+anyserve users grant alice friends-rust          # alice sees and manages only this one
+anyserve users add sam --key sam.pub --admin
+anyserve users cert sam                          # sam's browser certificate (sam.p12)
+anyserve remote enable --listen 0.0.0.0:7022     # open TCP 7022 in your firewall
+```
+
+On alice's computer:
+
+```bash
+anyserve remote add box alice@box.example.com:7022 --key ~/.ssh/id_ed25519
+anyserve proxy box                               # the web UI, on https://127.0.0.1:7080
+anyserve port-forward box friends-rust rcon      # e.g. for an RCON tool
+sftp -P 7022 alice@box.example.com               # the files of alice's instances
+```
+
+- **Users** see and manage only the instances granted to them: start, stop, restart, update,
+  back up, logs, console and files.
+- **Admins** see everything, but only in the web UI with their browser client certificate,
+  which is checked on the host. Without it they're ordinary users. Users, installs and removals
+  are managed only on the host, with the CLI.
+- **The host's web CA only covers localhost addresses**, so trusting it in your browser can't
+  vouch for any real website.
+- **On the host itself**, `anyserve proxy` (no host) opens the same UI with full access.
+- **Everything remote users change is logged** to `audit.log` in the data folder.
+
+### Isolating native servers
+
+`anyserve install <game> --isolate` (or `anyserve config <name> --isolate` later)
+runs a native game server in a container that sees only its own server folder.
+It runs as your user, with no capabilities, so instances can't read each other's
+files or processes. The image is the definition's `container` hints (a base
+image plus packages), built locally once. Server files stay mounted, never baked
+in. Consoles, logs, backups and clean stops work as before, because Anyserve's
+supervisor stays outside the container. This needs Linux and Docker, and works
+for definitions with `container` hints.
 
 ## How it works
 

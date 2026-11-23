@@ -2,6 +2,8 @@
 package paths
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +27,25 @@ func (d Dirs) Backups() string { return filepath.Join(d.Data, "backups") }
 
 // Tools is where Anyserve installs helpers such as SteamCMD.
 func (d Dirs) Tools() string { return filepath.Join(d.Data, "tools") }
+
+// Socket is the local API's unix socket: in the data folder, unless that
+// path is too long for a unix socket (about 100 bytes), in which case it's
+// in a private per-user folder under the runtime directory.
+func (d Dirs) Socket() string {
+	p := filepath.Join(d.Data, "anyserve.sock")
+	if len(p) <= 100 {
+		return p
+	}
+	sum := sha256.Sum256([]byte(d.Data))
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if base == "" || runtime.GOOS != "linux" {
+		base = os.TempDir()
+	}
+	return filepath.Join(base, fmt.Sprintf("anyserve-%d", os.Getuid()), fmt.Sprintf("api-%x.sock", sum[:4]))
+}
+
+// AuditLog records every change made through the API.
+func (d Dirs) AuditLog() string { return filepath.Join(d.Data, "audit.log") }
 
 // Registries is the verified registry index cache.
 func (d Dirs) Registries() string { return filepath.Join(d.Cache, "registries") }

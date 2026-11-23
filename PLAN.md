@@ -250,9 +250,98 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **Tested end to end** with a throwaway registry: a broken Gotify definition (same version, a command that can't start) was applied, failed its health check, was rolled back with its data and held. A fixed 3.1.1-2 then applied and cleared the hold. Timer enable/status/disable work.
 - **Not done:** native servers' program files can't be rolled back (only their data); `anyserve upgrade` for Anyserve itself waits for release binaries.
 
+### Session 4b (2026-11-23): host API (remote access step 2)
+- **`internal/api`:** JSON over HTTP. Routes:
+  - `GET /v1/whoami`, `/v1/instances`, `/v1/instances/{name}` (plus `/logs`, `/backups`, `/ports`);
+  - `POST .../start|stop|restart|update|backup|console`;
+  - files: `GET` (list or download), `PUT` (atomic upload), `DELETE`, `POST .../files/mkdir|rename`.
+- **Who's calling:** every request needs a caller in its context. The unix socket makes everyone the owner (an admin). The SSH server (next step) will attach the remote user.
+- **Access:** non-admins see only instances granted to them. Instances they can't manage answer 404, the same as unknown ones. Grants and admin flags are re-read from the config on every request, so revoking applies at once.
+- **Files:** all go through `os.Root` at the instance's server folder, so `..` and symlinks (even ones a game server plants) can't reach outside it. Downloads are sent as attachments with `nosniff` and a sandbox CSP.
+- **Other:** one change at a time per instance (a second answers 409); changes are written to `audit.log` in the data folder (time, user, request, status, duration).
+- **Users model** (`internal/app/users.go`): `Config.Users` (name, admin, keys, instances), grant/revoke and `CanManage`. The CLI for it comes with the SSH server.
+- **`anyserve serve`:** serves the API on `anyserve.sock` (mode 0600; it moves to `$XDG_RUNTIME_DIR/anyserve-<uid>/` when the path is too long for a socket).
+- **Decision:** the CLI keeps working directly, not through the API, so nothing needs a daemon running.
+
+### Session 4c (2026-11-23): SSH server, web UI and browser client certificates (steps 3–6)
+- **`internal/remote` server** (x/crypto/ssh):
+  - Logins are by key only. The SSH user name must match the Anyserve user whose key it is.
+  - 10 failed logins within 10 minutes block an address for 15 minutes.
+  - Every connection, forward and SFTP change goes to the audit log.
+  - Channels:
+    - `direct-tcpip` to `api.anyserve:80` is one HTTP connection to the API, tagged with the user;
+    - `direct-tcpip` to 127.0.0.1 is allowed only for TCP ports of instances the user manages;
+    - a `session` carries only the `sftp` subsystem. `shell` and `exec` get a message and exit status 1.
+- **SFTP** (pkg/sftp request server): `/` lists the user's instances, and `/<instance>/` is its server folder through `os.Root`. Links can't be created, renames across instances are refused, and grants are re-checked on every operation.
+- **Admin actions need a browser client certificate or the host itself** (the user's rule, 2026-11-23; at first I built SSH certificates, then replaced them once the user said they meant browser certificates):
+  - The host has a web CA (`config/remote/web-ca.pem`/`.key`, ECDSA P-256). It's name-constrained (critical) to `localhost`, 127.0.0.0/8 and ::1, so a browser that trusts it can't be fooled about any real site.
+  - The web UI's HTTPS is terminated on the host, inside the SSH channel (`direct-tcpip` to `web.anyserve:443`). The browser's client certificate is checked by the host, so a modified client can't fake it. The certificate's CN must be the SSH user and its serial must still be listed in the user's `cert_serials`.
+  - `anyserve users cert <name>` (admins only; run on the host) writes a .p12 with a one-time import password (90 days by default). `users cert-revoke <name> <serial…>|--all` revokes. The web server's 2-minute idle limit means a revoked certificate stops working within minutes.
+  - Without a valid certificate, an admin's web UI is an ordinary user's (only granted instances). SFTP, port-forward and the CLI's API calls are always user-level.
+  - The host's own user (the CLI, the unix socket, `anyserve proxy` with no host) is always admin. Managing users, remote access, installs and removals have no API.
+  - Web sessions: `POST /v1/web-session` on the API channel returns a token (12 hours, bound to the SSH user) and the CA. The web UI's `/api` needs that token in `X-Anyserve-Token` (stopping other sites' requests, which the browser would send with the client certificate), and a loopback Host header (stopping DNS rebinding).
+- **Client:**
+  - `remote.Dial` pins the host key (ed25519). It uses `--key` or ssh-agent, offers `<key>-cert.pub` first when present, and asks for the passphrase of an encrypted key.
+  - `APIClient` sends HTTP through the SSH connection; `Forward` forwards a local listener.
+- **CLI:**
+  - `users add/add-key/list/remove/grant/revoke/admin/cert`;
+  - `remote enable [--listen]` (host key, admin CA, user service `anyserve-serve`), `remote disable`, `remote status`;
+  - `remote add <name> user@host[:port]` (checks the fingerprint: an interactive prompt, `--fingerprint`, or `--yes`), `remote list`, `remote remove`;
+  - `port-forward <host> <instance> <port>`;
+  - `users cert/cert-revoke`;
+  - `proxy [host]`: with a host, a local 127.0.0.1:7080 listener tunnels raw TCP to the host's TLS web UI and prints `https://127.0.0.1:7080/#token=…`, and the host's CA is saved under `config/hosts/`. With no host, plain HTTP on 127.0.0.1:7081, with the API in-process as the owner and a per-run token.
+- **Web UI** (`internal/webui`, embedded, no build step): instance list (refreshed every 5 s), start/stop/restart/back up/update, overview and ports, logs (optional 3-second refresh), console, file manager (browse, download via fetch, upload, new folder, rename, delete) and backups. Strict CSP, no inline script.
+- **Tested end to end with the real binary and OpenSSH:**
+  - `remote enable` installs `anyserve-serve`. `remote add` refuses a wrong fingerprint and accepts the right one.
+  - `port-forward` reaches the user's own instance and refuses another's. `sftp` lists only the user's instance, and `ssh … id` gets the no-shell message.
+  - Through `proxy`, curl as the browser: with no certificate the admin sees 0 instances, with the .p12 2 instances and `admin: true`. No token gets 401, a foreign Host gets 421.
+  - The local UI in the browser pane: list, detail, files, logs.
+- **Tests** (real SSH over loopback):
+  - logins: wrong user, unknown key, changed host key;
+  - the API's view per user;
+  - forwards: allowed, someone else's port, a non-instance port, another host;
+  - SFTP: reading, writing, `..`, symlink escapes, symlink creation, renames across instances;
+  - no shell;
+  - the web path: TLS through the tunnel with and without a client certificate, a wrong token, another user's token, a revoked certificate, a foreign CA; the CA's name constraints.
+- **Default port** 7022, on 127.0.0.1 until `--listen` says otherwise.
+
+### Session 4d (2026-11-23): isolated native servers (step 7)
+- **`install --isolate`, `config --isolate/--no-isolate`:** a native server runs in a container built from its definition's `container` hints (base image plus Debian packages, built locally as `anyserve-native/<id>:<hash of hints>`). Server files are mounted, never baked in.
+- **Design:** the supervisor (`anyserve run` under systemd) stays on the host and starts the server as `docker run --rm -i --init`. Consoles (stdin, RCON), logs, saves, backups and clean stops are unchanged. The container:
+  - runs as the installing uid:gid, with `--cap-drop ALL`, no-new-privileges and a pids limit;
+  - mounts only the server folder (at the same path, so absolute paths in arguments still work), with `HOME` set to it;
+  - publishes the definition's ports (public ones on all addresses, private ones on 127.0.0.1);
+  - gets only the server's own environment, never the host's.
+
+  Launchers (`via`: java, dotnet…) come from the image's PATH. The container is removed before each start and after each stop.
+- **Fixed:** an instance's own ports could clash (Minecraft's game port moved onto its RCON port). `ResolvePorts` now refuses two ports on one number unless one is TCP and the other UDP. A test checks every registry definition's defaults.
+- **Tested:**
+  - Terraria: console, clean stop, backup. In the container, uid 1001, all capabilities dropped, one mount, and the host's home isn't visible.
+  - Mindustry: java from eclipse-temurin, console.
+  - Minecraft: the user accepted Mojang's EULA for this test; RCON console, clean save and stop.
+
+### Session 4e (2026-11-23): HTTPS proxy (the user asked: Caddy by default, another or none as options)
+- **`anyserve https use caddy|nginx|traefik|none [--email]`, `https status`, `https sync`; `install --domain [--domain-port]`, `config --domain/--domain-port/--no-domain`.**
+- **caddy (default):** Anyserve runs `caddy:2.10.2-alpine` (pinned) from `<data>/https/`:
+  - host networking, to reach apps on 127.0.0.1 and take ports 80 and 443;
+  - the user's uid, `cap_drop: ALL` plus `NET_BIND_SERVICE`, read-only root and a tmpfs /tmp;
+  - the admin API on a unix socket in its config folder, so it takes no port;
+  - changes reload in place;
+  - it runs only while some app has a domain.
+
+  No-new-privileges can't be set for this container: the image's caddy binary binds low ports through a file capability, which no-new-privileges would ignore.
+- **nginx / traefik:** Anyserve writes `anyserve-nginx.conf` (server blocks with certbot paths, WebSocket headers and redirects) or `anyserve-traefik.yml` (a file provider assuming entry point `websecure` and resolver `letsencrypt`), and rewrites it whenever domains change.
+- **Which port a domain reaches:** `--domain-port`, else a port named `http`/`web`, else the only private TCP port; otherwise it asks. Domains are validated and unique across instances, and setting one is refused when the provider is none.
+- **Before starting Caddy,** Anyserve checks that ports 80 and 443 are free and, if not, suggests using that proxy instead.
+- **Tested:**
+  - Renderers, domain validation and port choice in unit tests.
+  - With the real binary: install with `--domain` (Caddy refused politely because this machine's port 80 is taken); `https use nginx`/`traefik` write correct files; `none` is refused while domains exist.
+  - The managed compose run on spare port 444: Caddy as uid 1001 with only NET_BIND_SERVICE, read-only, proxied to Gotify (200), and a reload through the unix socket works.
+  - A full Let's Encrypt run needs a public DNS name, so it isn't tested.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
-2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
+2. ~~Native servers in containers~~ (`--isolate`, Session 4d); a Kubernetes target is still to do
 3. Release binaries from a tag-triggered workflow
 4. A Pelican egg importer that drafts definitions for review
 5. Several processes per server (DST's caves), more `set` formats (xml, properties, yaml), and a second install source for bring-your-own game data
@@ -267,6 +356,7 @@ The goal is something between LinuxGSM and Pterodactyl, without exposing a web p
 Decisions:
 - **The channel is an SSH server built into Anyserve** (Go's `x/crypto/ssh`), not the host's sshd. It needs no root, no OS accounts and no sshd configuration. It has its own high port (configurable) and is off until `anyserve remote enable`.
 - **Keys only, no passwords.** Users and their public keys live in Anyserve's config: `anyserve users add alice --key alice.pub [--admin]`. Per-IP rate limiting and an audit log.
+- **Admin actions need a browser client certificate or the host itself** (the user's rule, 2026-11-23): in the web UI, admin power needs a TLS client certificate from the host's web CA, checked on the host. Everything else remote is user-level. User management has no API.
 - **Roles:** admins see and manage every instance; a user sees only the instances they own (`anyserve users grant alice my-rust`). Every request is checked on the host.
 - **No shells.** The SSH server offers only: the Anyserve API, port forwarding to ports of instances the user may manage, and SFTP limited to those instances' folders (served in-process with `os.Root`, so symlinks can't escape).
 - **The host key** is an ed25519 key generated on enable; its fingerprint is printed so users can check it on first connect.
@@ -274,12 +364,12 @@ Decisions:
 
 Steps, each its own pull request:
 1. ~~Scheduled updates~~ (Session 4)
-2. **Host API** (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
-3. **SSH server** (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
-4. **Client:** `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
-5. **Web UI** (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
-6. **SFTP**: in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
-7. **Native servers in containers** (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
+2. ~~**Host API**~~ (Session 4b) (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
+3. ~~**SSH server**~~ (Session 4c) (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
+4. ~~**Client:**~~ (Session 4c) `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
+5. ~~**Web UI**~~ (Session 4c) (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
+6. ~~**SFTP**~~ (Session 4c): in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.
+7. ~~**Native servers in containers**~~ (Session 4d) (milestone 5): run a native server inside a container with only its folder mounted, so instances can't reach each other's files or processes.
 
 ## Decided since the start
 

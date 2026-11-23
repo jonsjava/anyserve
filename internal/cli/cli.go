@@ -74,7 +74,8 @@ Run anyserve with no arguments for a guided install.`,
 		availableCmd(), infoCmd(), installCmd(), listCmd(), statusCmd(),
 		startCmd(), stopCmd(), restartCmd(), logsCmd(), updateCmd(),
 		configCmd(), portsCmd(), consoleCmd(), rconCmd(), sayCmd(),
-		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(),
+		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(), serveCmd(),
+		usersCmd(), remoteCmd(), proxyCmd(), portForwardCmd(), httpsCmd(),
 		refreshCmd(), registryCmd(),
 		steamCmd(), targetsCmd(), runCmd(), versionCmd(),
 	)
@@ -311,6 +312,9 @@ func installCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&req.Start, "start", false, "start the server after installing")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask for confirmation")
 	cmd.Flags().BoolVar(&req.SteamOutput, "steam-output", false, "show SteamCMD's full output")
+	cmd.Flags().StringVar(&req.Domain, "domain", "", "serve an app over HTTPS at this domain through the proxy (`anyserve https`)")
+	cmd.Flags().StringVar(&req.DomainPort, "domain-port", "", "which port the domain reaches (default: the app's web port)")
+	cmd.Flags().BoolVar(&req.Isolate, "isolate", false, "run a native server in a container that sees only its own folder (Linux, Docker)")
 	cmd.Flags().StringArrayVar(&req.Expose, "expose", nil, "open a private port (such as a web UI) to the network instead of this machine only (stacks; repeatable)")
 	return cmd
 }
@@ -527,9 +531,12 @@ func updateCmd() *cobra.Command {
 
 func configCmd() *cobra.Command {
 	var (
-		sets, ports      []string
-		expose, unexpose []string
-		showSecrets      bool
+		sets, ports        []string
+		expose, unexpose   []string
+		isolate, noIsolate bool
+		domain, domainPort string
+		noDomain           bool
+		showSecrets        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "config <name>",
@@ -543,7 +550,7 @@ func configCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(sets) > 0 || len(ports) > 0 || len(expose) > 0 || len(unexpose) > 0 {
+			if len(sets) > 0 || len(ports) > 0 || len(expose) > 0 || len(unexpose) > 0 || isolate || noIsolate || domain != "" || domainPort != "" || noDomain {
 				s, err := parseSets(sets)
 				if err != nil {
 					return err
@@ -552,7 +559,21 @@ func configCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := a.Reconfigure(args[0], app.Changes{Settings: s, Ports: p, Expose: expose, Unexpose: unexpose}); err != nil {
+				ch := app.Changes{Settings: s, Ports: p, Expose: expose, Unexpose: unexpose}
+				if isolate || noIsolate {
+					v := isolate && !noIsolate
+					ch.Isolate = &v
+				}
+				if noDomain {
+					empty := ""
+					ch.Domain = &empty
+				} else if domain != "" {
+					ch.Domain = &domain
+				}
+				if domainPort != "" {
+					ch.DomainPort = &domainPort
+				}
+				if err := a.Reconfigure(args[0], ch); err != nil {
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Updated %s's configuration.\n", args[0])
@@ -578,10 +599,21 @@ func configCmd() *cobra.Command {
 			if len(in.Expose) > 0 {
 				fmt.Fprintf(out, "Opened to the network with --expose: %s\n", strings.Join(in.Expose, ", "))
 			}
+			if in.Domain != "" {
+				fmt.Fprintf(out, "Domain:    https://%s\n", in.Domain)
+			}
+			if in.Isolation != "" {
+				fmt.Fprintf(out, "Isolation: %s (sees only %s)\n", in.Isolation, in.ServerDir)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringArrayVar(&expose, "expose", nil, "open a private port to the network instead of this machine only (stacks; repeatable)")
+	cmd.Flags().StringVar(&domain, "domain", "", "serve the app over HTTPS at this domain (`anyserve https`)")
+	cmd.Flags().StringVar(&domainPort, "domain-port", "", "which port the domain reaches (default: the web port)")
+	cmd.Flags().BoolVar(&noDomain, "no-domain", false, "stop serving the app at its domain")
+	cmd.Flags().BoolVar(&isolate, "isolate", false, "run this native server in a container that sees only its own folder")
+	cmd.Flags().BoolVar(&noIsolate, "no-isolate", false, "run it directly on the host again")
 	cmd.Flags().StringArrayVar(&unexpose, "unexpose", nil, "make an exposed port private again (repeatable)")
 	cmd.Flags().StringArrayVar(&sets, "set", nil, "change a setting, key=value (repeatable)")
 	cmd.Flags().StringArrayVar(&ports, "port", nil, "change a port, name=number (repeatable)")

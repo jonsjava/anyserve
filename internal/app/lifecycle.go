@@ -38,6 +38,12 @@ type InstallRequest struct {
 	SteamOutput bool
 	// Expose opens these private ports to the network (stacks only).
 	Expose []string
+	// Isolate runs a native server in a container that sees only its own
+	// folder.
+	Isolate bool
+	// Domain serves the app over HTTPS through the proxy, forwarding to
+	// DomainPort (empty picks the web port).
+	Domain, DomainPort string
 }
 
 // Plan is a checked install request, ready to run. The wizard builds one
@@ -91,6 +97,16 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 		return nil, err
 	}
 	p := &Plan{Req: req, Entry: e, Target: t, Settings: settings, Ports: ports}
+	if req.Isolate {
+		if err := target.CanIsolate(e.Def); err != nil {
+			return nil, fmt.Errorf("--isolate: %w", err)
+		}
+	}
+	if req.Domain != "" {
+		if err := a.checkDomain(&instance.Instance{Name: req.Name}, e.Def, req.Domain, req.DomainPort); err != nil {
+			return nil, fmt.Errorf("--domain: %w", err)
+		}
+	}
 	if err := checkExpose(e.Def, req.Expose); err != nil {
 		return nil, err
 	}
@@ -182,6 +198,8 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		Settings:          map[string]string{},
 		Ports:             p.Ports,
 		Expose:            p.Req.Expose,
+		Domain:            p.Req.Domain,
+		DomainPort:        p.Req.DomainPort,
 		Installed:         now,
 		Updated:           now,
 	}
@@ -218,11 +236,29 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		cleanup()
 		return nil, err
 	}
+	if p.Req.Isolate {
+		in.Isolation = target.IsolationContainer
+		if _, err := target.EnsureNativeImage(d, a.Out); err != nil {
+			cleanup()
+			return nil, err
+		}
+		if err := a.Store.Save(in, d); err != nil {
+			cleanup()
+			return nil, err
+		}
+	}
 	if err := p.Target.Register(in, d, a.targetEnv()); err != nil {
 		cleanup()
 		return nil, fmt.Errorf("register with %s: %w", p.Target.Name(), err)
 	}
 	a.Log("Installed. Server files are in %s", in.ServerDir)
+	if in.Domain != "" {
+		if err := a.SyncHTTPS(); err != nil {
+			a.Log("HTTPS for %s isn't set up: %v", in.Domain, err)
+		} else {
+			a.Log("https://%s will reach %s once the domain's DNS points here", in.Domain, in.Name)
+		}
+	}
 	if p.Req.Start {
 		if err := p.Target.Start(in); err != nil {
 			return in, fmt.Errorf("installed, but starting failed: %w", err)
@@ -443,6 +479,9 @@ func copyInto(src, dst string) error {
 	}
 	return os.Rename(tmp, dst)
 }
+
+// TargetEnv is what targets need to write services that run this binary.
+func (a *App) TargetEnv() target.Env { return a.targetEnv() }
 
 func (a *App) targetEnv() target.Env {
 	exe, err := os.Executable()
@@ -673,14 +712,17 @@ func (a *App) Run(ctx context.Context, name string) error {
 	if err := a.writeConfig(in, d); err != nil {
 		return err
 	}
+	isolated := in.Isolation == target.IsolationContainer
 	command, args := cmdPath, r.Args
 	if len(r.Via) > 0 {
 		var chain []string
 		for _, v := range r.Via {
 			l := spec.Launchers[v]
-			prog, err := exec.LookPath(l.Program)
-			if err != nil {
-				return fmt.Errorf("%s needs %s, which isn't installed: install %s", d.Name, l.Program, l.Install)
+			prog := l.Program // in a container, found on the image's PATH
+			if !isolated {
+				if prog, err = exec.LookPath(l.Program); err != nil {
+					return fmt.Errorf("%s needs %s, which isn't installed: install %s", d.Name, l.Program, l.Install)
+				}
 			}
 			chain = append(chain, prog)
 			chain = append(chain, l.Args...)
@@ -703,6 +745,22 @@ func (a *App) Run(ctx context.Context, name string) error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+r.Env[k])
+	}
+	if isolated {
+		if err := target.CanIsolate(d); err != nil {
+			return fmt.Errorf("can't run %s in a container: %w", in.Name, err)
+		}
+		image, err := target.EnsureNativeImage(d, a.Out)
+		if err != nil {
+			return err
+		}
+		var own []string
+		for _, k := range keys {
+			own = append(own, k+"="+r.Env[k])
+		}
+		target.RemoveIsolated(in)
+		defer target.RemoveIsolated(in)
+		command, args = target.IsolatedCommand(in, d, image, workdir, command, args, own)
 	}
 	timeout := time.Duration(d.Stop.TimeoutSeconds) * time.Second
 	var stopFunc func() error
@@ -817,6 +875,11 @@ type Changes struct {
 	// Expose and Unexpose open private ports to the network, or close
 	// them again (stacks only).
 	Expose, Unexpose []string
+	// Isolate turns container isolation on or off (nil leaves it).
+	Isolate *bool
+	// Domain sets (or, empty, removes) the HTTPS domain; nil leaves it.
+	Domain     *string
+	DomainPort *string
 }
 
 // checkExpose checks that ports named for --expose exist and can be
@@ -891,6 +954,37 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		return errors.New(strings.Join(conflicts, "\n"))
 	}
 	in.Settings, in.Ports = merged, resolvedPorts
+	domainChanged := false
+	if c.Domain != nil || c.DomainPort != nil {
+		dom, dport := in.Domain, in.DomainPort
+		if c.Domain != nil {
+			dom = strings.ToLower(strings.TrimSpace(*c.Domain))
+		}
+		if c.DomainPort != nil {
+			dport = *c.DomainPort
+		}
+		if err := a.checkDomain(in, d, dom, dport); err != nil {
+			return err
+		}
+		in.Domain, in.DomainPort = dom, dport
+		if dom == "" {
+			in.DomainPort = ""
+		}
+		domainChanged = true
+	}
+	if c.Isolate != nil {
+		if *c.Isolate {
+			if err := target.CanIsolate(d); err != nil {
+				return err
+			}
+			if _, err := target.EnsureNativeImage(d, a.Out); err != nil {
+				return err
+			}
+			in.Isolation = target.IsolationContainer
+		} else {
+			in.Isolation = ""
+		}
+	}
 	if err := a.Store.Save(in, d); err != nil {
 		return err
 	}
@@ -901,6 +995,14 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		// Settings, ports and exposure live in the compose file.
 		if err := t.Register(in, d, a.targetEnv()); err != nil {
 			return err
+		}
+	}
+	if domainChanged || len(ports) > 0 {
+		if err := a.SyncHTTPS(); err != nil {
+			return fmt.Errorf("saved, but the HTTPS proxy wasn't updated: %w", err)
+		}
+		if domainChanged && len(settings) == 0 && len(ports) == 0 && c.Isolate == nil && len(c.Expose) == 0 && len(c.Unexpose) == 0 {
+			return nil // nothing about the app itself changed
 		}
 	}
 	if t.Status(in).State == "running" {
@@ -928,6 +1030,11 @@ func (a *App) Remove(name string) error {
 	}
 	if customDir {
 		a.Log("Server files in %s were left in place", in.ServerDir)
+	}
+	if in.Domain != "" {
+		if err := a.SyncHTTPS(); err != nil {
+			a.Log("Couldn't take %s off the HTTPS proxy: %v", in.Domain, err)
+		}
 	}
 	return nil
 }

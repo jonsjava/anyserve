@@ -108,3 +108,21 @@ func TestNotify(t *testing.T) {
 		t.Fatalf("posted %q (title %q), want %q", got, title, want)
 	}
 }
+
+func TestWebPort(t *testing.T) {
+	d := &spec.Definition{Name: "x", Ports: []spec.Port{{Name: "game", Port: 1, Protocol: "udp", Public: true}, {Name: "admin", Port: 2, Protocol: "tcp"}}}
+	if p, err := WebPort(d, ""); err != nil || p.Name != "admin" {
+		t.Errorf("only private TCP port: %v %v", p, err)
+	}
+	d.Ports = append(d.Ports, spec.Port{Name: "http", Port: 3, Protocol: "tcp"})
+	if p, _ := WebPort(d, ""); p.Name != "http" {
+		t.Errorf("http should win: %v", p)
+	}
+	if _, err := WebPort(d, "game"); err == nil {
+		t.Error("a UDP port was accepted")
+	}
+	d.Ports = []spec.Port{{Name: "a", Protocol: "tcp"}, {Name: "b", Protocol: "tcp"}}
+	if _, err := WebPort(d, ""); err == nil {
+		t.Error("ambiguous ports should need --domain-port")
+	}
+}

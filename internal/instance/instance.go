@@ -42,6 +42,13 @@ type Instance struct {
 	Updated   time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
+	// Domain is served over HTTPS by the proxy (`anyserve https`),
+	// forwarding to DomainPort (a port name; empty picks the web port).
+	Domain     string `json:"domain,omitempty"`
+	DomainPort string `json:"domain_port,omitempty"`
+	// Isolation is "container" when a native server runs in a container
+	// that sees only its server folder; empty runs it directly.
+	Isolation string `json:"isolation,omitempty"`
 	// AutoUpdate is the scheduled-update policy: off, notify or apply.
 	// Empty means notify.
 	AutoUpdate string `json:"auto_update,omitempty"`
