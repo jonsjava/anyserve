@@ -479,4 +479,3 @@ func cleanRel(p string) (string, error) {
 	}
 	return rel, nil
 }
-
