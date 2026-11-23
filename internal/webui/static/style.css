@@ -42,3 +42,22 @@ table{border-collapse:collapse;width:100%}
 .crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .toast{position:fixed;bottom:16px;right:16px;max-width:min(480px,calc(100vw - 32px));background:var(--text);color:var(--bg);padding:10px 14px;border-radius:8px;white-space:pre-wrap}
 .toast.bad{background:var(--bad);color:#fff}
+.topnav{display:flex;gap:6px}.topnav button[aria-current=true]{border-color:var(--accent);font-weight:600}
+.page{padding:16px;max-width:1000px;margin:0 auto}
+.danger{color:var(--bad)}.danger:hover{border-color:var(--bad)}
+.stack{display:flex;flex-direction:column;gap:10px;max-width:640px}
+.stack label{display:flex;flex-direction:column;gap:4px}.stack label.check{flex-direction:row;align-items:center;gap:8px}
+textarea{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;width:100%}
+select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+.notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;white-space:pre-wrap;border-radius:0}
+.notice.bad{border-left-color:var(--bad)}
+.catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:10px;max-height:60vh;overflow:auto}
+.catalog .card{margin:0}.catalog .kind{font-size:11px;color:var(--muted)}
+.ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.ports label{font-size:12px}
+.selbar{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:8px 0}
+.chk{width:28px}
+.editor{margin-top:12px}.editor textarea{min-height:50vh;margin-top:8px;white-space:pre;tab-size:4}
+.chips{display:flex;flex-wrap:wrap;gap:4px}.chip{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px;display:inline-flex;gap:4px;align-items:center}
+.chip button{border:0;padding:0 2px;background:none;color:var(--muted)}
+.nowrap{white-space:nowrap}
