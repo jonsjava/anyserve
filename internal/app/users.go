@@ -128,8 +128,8 @@ func (a *App) CallerFor(name string, cert bool) (Caller, error) {
 
 // AddUser creates a user with one or more public keys.
 func (a *App) AddUser(name string, admin bool, keys []string) error {
-	if !userNameRe.MatchString(name) || name == Owner.Name {
-		return fmt.Errorf("user name %q must be 1-32 lowercase letters, digits, - and _, starting with a letter (and not %q)", name, Owner.Name)
+	if !userNameRe.MatchString(name) || name == Owner.Name || strings.HasPrefix(name, "anyserve") {
+		return fmt.Errorf("user name %q must be 1-32 lowercase letters, digits, - and _, starting with a letter (and not %q or anyserve...)", name, Owner.Name)
 	}
 	cfg, err := a.LoadConfig()
 	if err != nil {

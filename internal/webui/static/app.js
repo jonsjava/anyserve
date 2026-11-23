@@ -17,7 +17,9 @@
     for (const k of kids) n.append(k);
     return n;
   };
-  let current = null, cwd = "", instances = [], logTimer = null;
+  let current = null, cwd = "", instances = [], logTimer = null, node = "";
+  // Calls about servers go to the chosen machine; the manager forwards them.
+  const onNode = (path) => node && /^\/v1\/(instances|catalog|jobs)(\/|\?|$)/.test(path) ? "/v1/nodes/" + encodeURIComponent(node) + path : path;
 
   async function api(method, path, body, raw) {
     const opts = { method, headers: { "X-Anyserve-Token": token || "" } };
@@ -25,7 +27,7 @@
       if (body instanceof Blob || body instanceof File) opts.body = body;
       else { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
     }
-    const r = await fetch("/api" + path, opts);
+    const r = await fetch("/api" + onNode(path), opts);
     if (raw) {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r;
@@ -313,9 +315,10 @@
   // ---- Admin: views, users, new servers, removal ----
   let isAdmin = false, catalog = null, def = null, jobTimer = null;
   function showView(v) {
-    for (const n of ["servers", "users", "new"]) $("#view-" + n).hidden = n !== v;
+    for (const n of ["servers", "users", "machines", "new"]) $("#view-" + n).hidden = n !== v;
     document.querySelectorAll("#adminnav button").forEach((b) => b.setAttribute("aria-current", b.dataset.view === v ? "true" : "false"));
     if (v === "users") loadUsers();
+    if (v === "machines") loadMachines();
     if (v === "new") openNew();
   }
   document.querySelectorAll("#adminnav button").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
@@ -327,6 +330,60 @@
     if (typed !== name) { toast("The name didn't match; nothing was removed.", true); return; }
     try { await api("DELETE", "/v1/instances/" + enc(name), { confirm: typed }); toast("Removed " + name); current = null; $("#detail").hidden = true; $("#welcome").hidden = false; loadList(); }
     catch (e) { toast(e.message, true); showLog(e.log); }
+  };
+
+  // ---- Machines (the fleet) ----
+  async function loadNodes() {
+    let nodes = [];
+    try { nodes = await api("GET", "/v1/nodes"); } catch (e) { return []; }
+    const sel = $("#node");
+    const want = node;
+    sel.replaceChildren(el("option", { value: "", textContent: "This machine" }),
+      ...nodes.map((n) => el("option", { value: n.name, textContent: n.name + (n.connected ? "" : " (offline)") })));
+    sel.value = nodes.some((n) => n.name === want) ? want : "";
+    sel.hidden = nodes.length === 0;
+    if (sel.value !== node) chooseNode(sel.value);
+    return nodes;
+  }
+  function chooseNode(n) {
+    node = n; current = null; catalog = null; instances = [];
+    clearInterval(logTimer);
+    $("#detail").hidden = true; $("#welcome").hidden = false;
+    $("#instances").replaceChildren();
+    if (!$("#view-new").hidden) openNew();
+    loadList();
+  }
+  $("#node").onchange = (ev) => chooseNode(ev.target.value);
+
+  async function loadMachines() {
+    const tb = $("#m-list");
+    const nodes = await loadNodes();
+    if (!nodes.length) { tb.replaceChildren(el("tr", {}, el("td", { colSpan: 5, className: "muted", textContent: "No other machines yet." }))); return; }
+    tb.replaceChildren(...nodes.map((n) => {
+      const rm = el("button", { className: "danger", textContent: "Remove" });
+      rm.onclick = async () => {
+        if (!confirm("Remove " + n.name + " from this fleet? Its servers keep running there, but you can't manage them from here until it joins again.")) return;
+        try { await api("DELETE", "/v1/nodes/" + enc(n.name)); toast("Removed " + n.name); loadMachines(); } catch (e) { toast(e.message, true); }
+      };
+      return el("tr", {},
+        el("td", {}, el("strong", { textContent: n.name }), n.addr ? el("div", { className: "muted small", textContent: n.addr }) : ""),
+        el("td", {}, el("span", { className: "badge " + (n.connected ? "s-running" : "s-stopped"), textContent: n.connected ? "connected" : "offline" })),
+        el("td", { textContent: n.version || "" }),
+        el("td", { className: "nowrap", textContent: when(n.joined) }),
+        el("td", {}, rm));
+    }));
+  }
+  $("#m-add").onclick = async () => {
+    const box = $("#m-join");
+    try {
+      const j = await api("POST", "/v1/fleet/token");
+      const code = el("code", { textContent: j.command });
+      const copy = el("button", { textContent: "Copy" });
+      copy.onclick = () => navigator.clipboard.writeText(j.command).then(() => toast("Copied"), () => toast("Select the command and copy it", true));
+      box.className = "notice";
+      box.replaceChildren("Run this on the new machine. It works once, until " + new Date(j.expires).toLocaleTimeString() + ":\n", code, "\n", copy);
+    } catch (e) { box.className = "notice bad"; box.textContent = e.message; }
+    box.hidden = false;
   };
 
   async function loadUsers() {
@@ -546,6 +603,7 @@
       $("#who").textContent = me.name + (me.local ? " (this host's owner)" : me.admin ? " (admin)" : "");
       isAdmin = me.admin;
       $("#adminnav").hidden = !isAdmin;
+      if (isAdmin) { loadNodes(); setInterval(loadNodes, 15000); }
       $("#d-remove").hidden = !isAdmin;
       document.title = "Anyserve · " + me.host;
     } catch (e) { $("#who").textContent = e.message; return; }

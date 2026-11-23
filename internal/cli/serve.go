@@ -81,6 +81,9 @@ to run it yourself.`,
 			if err := startRemote(ctx, cmd, a, s, errs); err != nil {
 				return err
 			}
+			if err := startAgent(ctx, cmd, a, s); err != nil {
+				return err
+			}
 			err = <-errs
 			cancel()
 			return err
