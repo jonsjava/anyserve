@@ -43,7 +43,7 @@ func testServer(t *testing.T) (*Server, string) {
 		os.MkdirAll(filepath.Join(in.ServerDir, "data"), 0o755)
 		os.WriteFile(filepath.Join(in.ServerDir, "data", "hello.txt"), []byte("hi from "+n), 0o644)
 	}
-	if err := a.AddUser("alice", false, []string{"ssh-ed25519 AAAA test"}); err != nil {
+	if err := a.AddUser("alice", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Grant("alice", "alpha"); err != nil {

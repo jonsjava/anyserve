@@ -444,6 +444,9 @@ func copyInto(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 
+// TargetEnv is what targets need to write services that run this binary.
+func (a *App) TargetEnv() target.Env { return a.targetEnv() }
+
 func (a *App) targetEnv() target.Env {
 	exe, err := os.Executable()
 	if err == nil {

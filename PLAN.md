@@ -263,6 +263,38 @@ Send LinuxGSM pull requests alongside, starting once the Wurm Unlimited headless
 - **`anyserve serve`:** serves the API on `anyserve.sock` (mode 0600; it moves to `$XDG_RUNTIME_DIR/anyserve-<uid>/` when the path is too long for a socket).
 - **Decision:** the CLI keeps working directly, not through the API, so nothing needs a daemon running.
 
+### Session 4c (2026-11-23): SSH server and admin certificates (steps 3–4, part 1)
+- **`internal/remote` server** (x/crypto/ssh):
+  - Logins are by key only. The SSH user name must match the Anyserve user whose key it is.
+  - 10 failed logins within 10 minutes block an address for 15 minutes.
+  - Every connection, forward and SFTP change goes to the audit log.
+  - Channels:
+    - `direct-tcpip` to `api.anyserve:80` is one HTTP connection to the API, tagged with the user;
+    - `direct-tcpip` to 127.0.0.1 is allowed only for TCP ports of instances the user manages;
+    - a `session` carries only the `sftp` subsystem. `shell` and `exec` get a message and exit status 1.
+- **SFTP** (pkg/sftp request server): `/` lists the user's instances, and `/<instance>/` is its server folder through `os.Root`. Links can't be created, renames across instances are refused, and grants are re-checked on every operation.
+- **Admin certificates (the user's rule: admin actions only with a client certificate or on the host):**
+  - Remote admin power needs an SSH user certificate signed by the host's admin CA (`config/remote/admin_ca_ed25519_key`, which never leaves the host). Certificates come only from `anyserve users cert <name>` run on the host; they're valid 30 days by default and name the user as principal.
+  - An admin who signs in with a plain key is an ordinary user.
+  - Demoting a user in the config removes admin power at once, even with a valid certificate.
+  - Managing users, remote access, installs and removals have no API at all; they're CLI-only on the host. The host's own user (the CLI, the unix socket) is always admin.
+- **Client:**
+  - `remote.Dial` pins the host key (ed25519). It uses `--key` or ssh-agent, offers `<key>-cert.pub` first when present, and asks for the passphrase of an encrypted key.
+  - `APIClient` sends HTTP through the SSH connection; `Forward` forwards a local listener.
+- **CLI:**
+  - `users add/add-key/list/remove/grant/revoke/admin/cert`;
+  - `remote enable [--listen]` (host key, admin CA, user service `anyserve-serve`), `remote disable`, `remote status`;
+  - `remote add <name> user@host[:port]` (checks the fingerprint: an interactive prompt, `--fingerprint`, or `--yes`), `remote list`, `remote remove`;
+  - `port-forward <host> <instance> <port>`.
+- **Tests** (real SSH over loopback):
+  - logins: wrong user, unknown key, changed host key;
+  - the API's view per user;
+  - forwards: allowed, someone else's port, a non-instance port, another host;
+  - SFTP: reading, writing, `..`, symlink escapes, symlink creation, renames across instances;
+  - no shell;
+  - admin certificates: plain key, valid certificate, demoted user, foreign CA, wrong principal, expired.
+- **Default port** 7022, on 127.0.0.1 until `--listen` says otherwise.
+
 ### Next
 1. Windows service and launchd targets (milestone 4)
 2. Native servers in containers, using each definition's `container` hints (rest of milestone 5)
@@ -280,6 +312,7 @@ The goal is something between LinuxGSM and Pterodactyl, without exposing a web p
 Decisions:
 - **The channel is an SSH server built into Anyserve** (Go's `x/crypto/ssh`), not the host's sshd. It needs no root, no OS accounts and no sshd configuration. It has its own high port (configurable) and is off until `anyserve remote enable`.
 - **Keys only, no passwords.** Users and their public keys live in Anyserve's config: `anyserve users add alice --key alice.pub [--admin]`. Per-IP rate limiting and an audit log.
+- **Admin actions need a client certificate or the host itself** (the user's rule, 2026-11-23): remote admin power needs an SSH certificate from the host's admin CA, issued only on the host. User management has no API.
 - **Roles:** admins see and manage every instance; a user sees only the instances they own (`anyserve users grant alice my-rust`). Every request is checked on the host.
 - **No shells.** The SSH server offers only: the Anyserve API, port forwarding to ports of instances the user may manage, and SFTP limited to those instances' folders (served in-process with `os.Root`, so symlinks can't escape).
 - **The host key** is an ed25519 key generated on enable; its fingerprint is printed so users can check it on first connect.
@@ -288,7 +321,7 @@ Decisions:
 Steps, each its own pull request:
 1. ~~Scheduled updates~~ (Session 4)
 2. ~~**Host API**~~ (Session 4b) (`internal/api`): JSON over HTTP on a unix socket (`<data>/anyserve.sock`, mode 0600), served by `anyserve serve`. It exposes list, status, start, stop, restart, logs, backup, console and update for the CLI and UI. Requests carry a caller identity: the local socket is the owner (an admin); remote calls carry the SSH user.
-3. **SSH server** (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
+3. ~~**SSH server**~~ (Session 4c) (`internal/remote`): users, keys, grants, `remote enable/disable/status`, host key, rate limiting, audit log. The SSH channel types are an `anyserve-api` subsystem (HTTP over the channel to the API with the user's identity), `direct-tcpip` (only to 127.0.0.1 ports of permitted instances) and `sftp`.
 4. **Client:** `remote add/list/remove` (known host fingerprints pinned on first use), `proxy` (serves the embedded web UI and passes `/api` through SSH), `port-forward`.
 5. **Web UI** (embedded with go:embed, no build step): instance list, status, start/stop/restart, logs, console, backups; a file manager over the API's file endpoints.
 6. **SFTP**: in-process `pkg/sftp` with a handler rooted (`os.Root`) at each permitted instance's server folder; the virtual root lists the instances.

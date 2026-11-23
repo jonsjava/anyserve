@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // User is someone who may manage instances remotely, through the built-in
@@ -23,8 +26,32 @@ type User struct {
 
 // RemoteConfig holds the built-in SSH server's settings.
 type RemoteConfig struct {
+	// Enabled turns on the SSH server in `anyserve serve`.
+	Enabled bool `json:"enabled,omitempty"`
 	// Listen is the address the SSH server listens on, e.g. 0.0.0.0:7022.
 	Listen string `json:"listen,omitempty"`
+}
+
+// RemoteHost is another machine's Anyserve that this one manages, as
+// `anyserve remote add` saved it.
+type RemoteHost struct {
+	Name string `json:"name"`
+	Addr string `json:"addr"`
+	User string `json:"user"`
+	// Key is a private key file; empty means ssh-agent.
+	Key string `json:"key,omitempty"`
+	// HostKey is the pinned server key, in authorized_keys format.
+	HostKey string `json:"host_key"`
+}
+
+// FindHost returns a saved remote host.
+func (c *Config) FindHost(name string) (*RemoteHost, error) {
+	for i := range c.Hosts {
+		if c.Hosts[i].Name == name {
+			return &c.Hosts[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no remote host %q (see `anyserve remote list`)", name)
 }
 
 // DefaultRemoteListen is where the SSH server listens unless told
@@ -33,8 +60,14 @@ const DefaultRemoteListen = "127.0.0.1:7022"
 
 // Caller is who's making an API request.
 type Caller struct {
-	Name  string
+	Name string
+	// Admin is the caller's effective admin power: the host's own user,
+	// or an admin user who signed in with a certificate from this host's
+	// admin CA. An admin's plain key gives only user-level access.
 	Admin bool
+	// Cert is true when a remote caller signed in with an admin
+	// certificate.
+	Cert bool
 	// Local is true for the host's own user, over the unix socket.
 	Local bool
 }
@@ -59,7 +92,7 @@ func (c *Config) FindUser(name string) (*User, error) {
 
 // CanManage reports whether a caller may manage an instance.
 func (a *App) CanManage(c Caller, instance string) bool {
-	if c.Admin {
+	if c.Local {
 		return true
 	}
 	cfg, err := a.LoadConfig()
@@ -70,13 +103,15 @@ func (a *App) CanManage(c Caller, instance string) bool {
 	if err != nil {
 		return false
 	}
-	// Re-check admin from the config, so a demotion applies at once.
-	return u.Admin || slices.Contains(u.Instances, instance)
+	// Re-check admin from the config, so a demotion applies at once, and
+	// require the certificate for admin power.
+	return (u.Admin && c.Cert) || slices.Contains(u.Instances, instance)
 }
 
-// CallerFor returns the caller for a configured user, with their current
-// admin flag.
-func (a *App) CallerFor(name string) (Caller, error) {
+// CallerFor returns the caller for a configured user. cert says whether
+// they signed in with an admin certificate; admin power needs both the
+// user's admin flag and the certificate.
+func (a *App) CallerFor(name string, cert bool) (Caller, error) {
 	cfg, err := a.LoadConfig()
 	if err != nil {
 		return Caller{}, err
@@ -85,7 +120,7 @@ func (a *App) CallerFor(name string) (Caller, error) {
 	if err != nil {
 		return Caller{}, err
 	}
-	return Caller{Name: u.Name, Admin: u.Admin}, nil
+	return Caller{Name: u.Name, Admin: u.Admin && cert, Cert: cert}, nil
 }
 
 // AddUser creates a user with one or more public keys.
@@ -171,12 +206,30 @@ func (a *App) VisibleTo(c Caller, names []string) []string {
 	return out
 }
 
-// NormalizeKey checks a public key line and drops surrounding space.
+// NormalizeKey checks a public key line (authorized_keys format) and
+// returns it in a canonical form: type, key and comment.
 func NormalizeKey(line string) (string, error) {
-	line = strings.TrimSpace(line)
-	f := strings.Fields(line)
-	if len(f) < 2 || !strings.HasPrefix(f[0], "ssh-") && !strings.HasPrefix(f[0], "ecdsa-") && !strings.HasPrefix(f[0], "sk-") {
+	pk, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(line)))
+	if err != nil {
 		return "", errors.New("not an SSH public key (expected a line like \"ssh-ed25519 AAAA... you@laptop\")")
 	}
-	return line, nil
+	out := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pk)))
+	if comment != "" {
+		out += " " + comment
+	}
+	return out, nil
+}
+
+// UserForKey finds the user with this public key.
+func (c *Config) UserForKey(key ssh.PublicKey) (*User, bool) {
+	want := key.Marshal()
+	for i := range c.Users {
+		for _, line := range c.Users[i].Keys {
+			pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+			if err == nil && bytes.Equal(pk.Marshal(), want) {
+				return &c.Users[i], true
+			}
+		}
+	}
+	return nil, false
 }

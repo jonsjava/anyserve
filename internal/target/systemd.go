@@ -261,3 +261,66 @@ func UpdateTimerInfo() string {
 	}
 	return s
 }
+
+// ServeUnit is the user service that runs `anyserve serve`.
+const ServeUnit = "anyserve-serve.service"
+
+// ServeUnitText renders the serve service. Exported for tests.
+func ServeUnitText(env Env) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "# Managed by Anyserve (`anyserve remote`).\n[Unit]\nDescription=Anyserve: API and remote access\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\n")
+	if env.Home != "" {
+		fmt.Fprintf(&b, "Environment=%s\n", systemdQuote("ANYSERVE_HOME="+env.Home))
+	}
+	fmt.Fprintf(&b, "ExecStart=%s serve\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n", systemdQuote(env.Exe))
+	return b.String()
+}
+
+// InstallServe writes, enables and (re)starts the serve service.
+func InstallServe(env Env) error {
+	dir, err := unitDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, ServeUnit), []byte(ServeUnitText(env)), 0o644); err != nil {
+		return err
+	}
+	if err := systemctl("daemon-reload"); err != nil {
+		return err
+	}
+	if err := systemctl("enable", ServeUnit); err != nil {
+		return err
+	}
+	return systemctl("restart", ServeUnit)
+}
+
+// RemoveServe stops and deletes the serve service.
+func RemoveServe() error {
+	systemctl("disable", "--now", ServeUnit)
+	dir, err := unitDir()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, ServeUnit)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return systemctl("daemon-reload")
+}
+
+// ServeState is the serve service's state (active, inactive, failed...),
+// or "" if it isn't installed.
+func ServeState() string {
+	out, _ := exec.Command("systemctl", "--user", "show", ServeUnit, "-p", "LoadState", "-p", "ActiveState").Output()
+	props := map[string]string{}
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		k, v, _ := strings.Cut(l, "=")
+		props[k] = v
+	}
+	if props["LoadState"] != "loaded" {
+		return ""
+	}
+	return props["ActiveState"]
+}
