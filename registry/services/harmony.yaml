@@ -1,0 +1,576 @@
+schema: 1
+id: harmony
+name: Harmony
+description: A federated chat and social app (Discord-style servers and channels, on the fediverse), with its Supabase backend, as a stack of containers.
+homepage: https://github.com/y4my4my4m/harmony
+version: "1.9.7-1"
+kind: stack
+
+# Harmony is AGPL-3.0 with attribution and trademark terms. This definition
+# runs its unmodified published images and files. The migration and admin
+# scripts come from the harmony-kubernetes chart, and Caddy's routes are
+# upstream's own self-host/Caddyfile, used as is.
+install:
+  # The database migrations, at the same version as the images.
+  archive:
+    url: https://github.com/y4my4my4m/harmony/archive/refs/tags/v1.9.7.tar.gz
+    sha256: 74625f5434005d260bdd058f70723219df61e09a326954c3aa136e8ea235ecb9
+    subdir:
+      "*": harmony-1.9.7/db_schema
+    to: harmony/db_schema
+  downloads:
+    - url: https://raw.githubusercontent.com/y4my4my4m/harmony/v1.9.7/self-host/Caddyfile
+      sha256: b95f0dbf869b33784694c009e0bf7d9baab16ec591c091670bbd0cc4b2812667
+      to: harmony/Caddyfile
+      always: true
+    - url: https://raw.githubusercontent.com/y4my4my4m/harmony/v1.9.7/self-host/media-cache.conf
+      sha256: 99a963e1f3c92ec4903650245913dce10cdc6acfc4cde8cc3cd75e180dbfcda4
+      to: harmony/media-cache.conf
+      always: true
+    - url: https://raw.githubusercontent.com/jonsjava/harmony-kubernetes/dca4b75f66e23cbd8f693473c1f6228707d8d086/charts/harmony/files/migrate.sh
+      sha256: 03322c6ecedfd33fb3ea3db463095847e0e47d58417e8bbed3cf4b4664bcbad0
+      to: harmony/migrate.sh
+      always: true
+    - url: https://raw.githubusercontent.com/jonsjava/harmony-kubernetes/dca4b75f66e23cbd8f693473c1f6228707d8d086/charts/harmony/files/create-admin.mjs
+      sha256: 6a3076ac1eeac4fa0a60b15a763b3efac7e6f76a84b83e5d35dc53ed661aed1e
+      to: harmony/create-admin.mjs
+      always: true
+    # Supabase's database setup, at the commit Harmony's self-host pins.
+    - url: https://raw.githubusercontent.com/supabase/supabase/31b6368049a1d9f5ef409383567b3f9bdaf018e9/docker/volumes/db/realtime.sql
+      sha256: 7e9e442e7fc4dae05544c07b67bede37a00d84644304dfce4d937134cb4c8f88
+      to: supabase/realtime.sql
+    - url: https://raw.githubusercontent.com/supabase/supabase/31b6368049a1d9f5ef409383567b3f9bdaf018e9/docker/volumes/db/webhooks.sql
+      sha256: b584aaaa0c393f27218f81e01e76e1d07d42f947083249adcd6097ad471cde62
+      to: supabase/webhooks.sql
+    - url: https://raw.githubusercontent.com/supabase/supabase/31b6368049a1d9f5ef409383567b3f9bdaf018e9/docker/volumes/db/roles.sql
+      sha256: 3ad717b225daa38aa982da26750f35641eb404e1eb5e69a763c22236ab96c1b2
+      to: supabase/roles.sql
+    - url: https://raw.githubusercontent.com/supabase/supabase/31b6368049a1d9f5ef409383567b3f9bdaf018e9/docker/volumes/db/jwt.sql
+      sha256: 1cc94a4f16f6e2932b383cd68e211a96bcae298437ca4120d8a5106396c58465
+      to: supabase/jwt.sql
+
+settings:
+  - key: url
+    prompt: Address people will use for Harmony (e.g. https://chat.example.com)
+    description: Federation uses this name; don't change it after people have joined.
+    type: string
+    default: http://localhost:8090
+  - key: api_url
+    prompt: Address of its API, on its own name (e.g. https://db.chat.example.com)
+    description: Sign-in, data, uploads and live updates go here. Point it at the api port.
+    type: string
+    default: http://localhost:8091
+  - key: instance_name
+    prompt: Instance name
+    type: string
+    default: Harmony
+  - key: admin_email
+    prompt: Admin email (signs in with this)
+    type: string
+    default: admin@example.com
+  - key: admin_username
+    prompt: Admin user name (3-24 of a-z, 0-9 and _)
+    description: Harmony reserves admin, root, mod, staff, harmony and a few others.
+    type: string
+    default: owner
+  - key: admin_password
+    prompt: Admin password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: registration
+    prompt: Who can create an account?
+    type: choice
+    default: invite
+    choices:
+      - { value: open, label: Anyone }
+      - { value: invite, label: People with an invitation }
+      - { value: closed, label: Nobody (only the admin adds people) }
+  - key: upload_limit_mb
+    prompt: Largest upload, in MB
+    type: int
+    default: 50
+    min: 1
+    max: 5000
+  - key: postgres_password
+    prompt: Database password (leave empty to generate one)
+    description: Set once; the database keeps the first one.
+    type: string
+    secret: true
+    generate: true
+  - key: jwt_seed
+    prompt: Secret behind the API keys and database encryption (leave empty to generate one)
+    description: Never change it after the first start; encrypted data and every sign-in depend on it.
+    type: string
+    secret: true
+    generate: true
+  - key: redis_password
+    prompt: Queue password (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: listener_password
+    prompt: Password of the database role federation listens with (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: internal_secret
+    prompt: Secret between Harmony's own services (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+
+ports:
+  - name: http
+    port: 8090
+    protocol: tcp
+    public: false
+    description: The app and federation. Put an HTTPS proxy in front of it for the url setting.
+  - name: api
+    port: 8091
+    protocol: tcp
+    public: false
+    description: The API (Supabase). Put an HTTPS proxy in front of it for the api_url setting.
+
+files:
+  # supabase/postgres looks its user up by uid; containers run as yours.
+  - path: config/passwd
+    overwrite: true
+    template: |
+      root:x:0:0:root:/root:/bin/bash
+      postgres:x:{{.UID}}:{{.GID}}:PostgreSQL administrator:/var/lib/postgresql:/bin/bash
+      nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+  - path: config/group
+    overwrite: true
+    template: |
+      root:x:0:
+      postgres:x:{{.GID}}:
+      nogroup:x:65534:
+  # pgsodium's root key: 64 hex characters, fixed for the instance's life.
+  - path: config/pgsodium_root.key
+    overwrite: true
+    template: '{{sha256 (print .Settings.jwt_seed "/pgsodium")}}'
+  - path: config/kong.yml
+    overwrite: true
+    template: |
+      # Written by Anyserve. Supabase's API routes, after its docker/volumes/api/kong.yml.
+      _format_version: '2.1'
+      _transform: true
+      consumers:
+        - username: anon
+          keyauth_credentials:
+            - key: {{jwt (sha256 .Settings.jwt_seed) "anon"}}
+        - username: service_role
+          keyauth_credentials:
+            - key: {{jwt (sha256 .Settings.jwt_seed) "service_role"}}
+      acls:
+        - consumer: anon
+          group: anon
+        - consumer: service_role
+          group: admin
+      services:
+        - name: auth-v1-open
+          url: http://auth:9999/verify
+          routes: [{ name: auth-v1-open, strip_path: true, paths: [/auth/v1/verify] }]
+          plugins: [{ name: cors }]
+        - name: auth-v1-open-callback
+          url: http://auth:9999/callback
+          routes: [{ name: auth-v1-open-callback, strip_path: true, paths: [/auth/v1/callback] }]
+          plugins: [{ name: cors }]
+        - name: auth-v1-open-authorize
+          url: http://auth:9999/authorize
+          routes: [{ name: auth-v1-open-authorize, strip_path: true, paths: [/auth/v1/authorize] }]
+          plugins: [{ name: cors }]
+        - name: auth-v1
+          url: http://auth:9999/
+          routes: [{ name: auth-v1-all, strip_path: true, paths: [/auth/v1/] }]
+          plugins:
+            - name: cors
+            - { name: key-auth, config: { hide_credentials: false } }
+            - { name: acl, config: { hide_groups_header: true, allow: [admin, anon] } }
+        - name: rest-v1
+          url: http://rest:3000/
+          routes: [{ name: rest-v1-all, strip_path: true, paths: [/rest/v1/] }]
+          plugins:
+            - name: cors
+            - { name: key-auth, config: { hide_credentials: true } }
+            - { name: acl, config: { hide_groups_header: true, allow: [admin, anon] } }
+        - name: graphql-v1
+          url: http://rest:3000/rpc/graphql
+          routes: [{ name: graphql-v1-all, strip_path: true, paths: [/graphql/v1] }]
+          plugins:
+            - name: cors
+            - { name: key-auth, config: { hide_credentials: true } }
+            - { name: request-transformer, config: { add: { headers: ["Content-Profile:graphql_public"] } } }
+            - { name: acl, config: { hide_groups_header: true, allow: [admin, anon] } }
+        # Realtime picks its tenant from the host name: realtime-dev.
+        - name: realtime-v1-ws
+          url: http://realtime-dev:4000/socket
+          protocol: ws
+          routes: [{ name: realtime-v1-ws, strip_path: true, paths: [/realtime/v1/] }]
+          plugins:
+            - name: cors
+            - { name: key-auth, config: { hide_credentials: false } }
+            - { name: acl, config: { hide_groups_header: true, allow: [admin, anon] } }
+        - name: realtime-v1-rest
+          url: http://realtime-dev:4000/api
+          protocol: http
+          routes: [{ name: realtime-v1-rest, strip_path: true, paths: [/realtime/v1/api] }]
+          plugins:
+            - name: cors
+            - { name: key-auth, config: { hide_credentials: false } }
+            - { name: acl, config: { hide_groups_header: true, allow: [admin, anon] } }
+        - name: storage-v1
+          url: http://storage:5000/
+          routes: [{ name: storage-v1-all, strip_path: true, paths: [/storage/v1/] }]
+          plugins: [{ name: cors }]
+  # Harmony's web app reads this at start; the image would write it as root.
+  - path: config/web-config.json
+    overwrite: true
+    template: |
+      {
+        "supabaseUrl": {{json .Settings.api_url}},
+        "supabaseAnonKey": {{json (jwt (sha256 .Settings.jwt_seed) "anon")}},
+        "domain": {{json (urlHost .Settings.url)}},
+        "instanceDomain": {{json (urlHost .Settings.url)}},
+        "instanceName": {{json .Settings.instance_name}},
+        "appUrl": {{json .Settings.url}}
+      }
+  # nginx's main config for the web and media-cache containers: everything
+  # it writes goes under /tmp, since they run as your user.
+  - path: config/nginx.conf
+    overwrite: true
+    template: |
+      # Written by Anyserve.
+      pid /tmp/nginx.pid;
+      worker_processes auto;
+      error_log /dev/stderr warn;
+      events { worker_connections 1024; }
+      http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        access_log off;
+        sendfile on;
+        client_body_temp_path /tmp/client_temp;
+        proxy_temp_path /tmp/proxy_temp;
+        fastcgi_temp_path /tmp/fastcgi_temp;
+        uwsgi_temp_path /tmp/uwsgi_temp;
+        scgi_temp_path /tmp/scgi_temp;
+        include /etc/nginx/conf.d/*.conf;
+      }
+
+stack:
+  services:
+    - name: supabase-db
+      image: supabase/postgres:15.8.1.060@sha256:0e2279598bc0224fb5960c3a61eb23270cd60119427f3a7bdec86ba282600dcc
+      command: [postgres, -c, config_file=/etc/postgresql/postgresql.conf, -c, log_min_messages=fatal]
+      env:
+        POSTGRES_HOST: /var/run/postgresql
+        PGPORT: "5432"
+        POSTGRES_PORT: "5432"
+        PGPASSWORD: "{{.Settings.postgres_password}}"
+        POSTGRES_PASSWORD: "{{.Settings.postgres_password}}"
+        PGDATABASE: postgres
+        POSTGRES_DB: postgres
+        JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        JWT_EXP: "3600"
+      volumes:
+        - { path: data/postgres, target: /var/lib/postgresql/data }
+        - { path: run/postgresql, target: /var/run/postgresql }
+        - { path: config/passwd, target: /etc/passwd, read_only: true }
+        - { path: config/group, target: /etc/group, read_only: true }
+        - { path: config/pgsodium_root.key, target: /etc/postgresql-custom/pgsodium_root.key, read_only: true }
+        - { path: supabase/realtime.sql, target: /docker-entrypoint-initdb.d/migrations/99-realtime.sql, read_only: true }
+        - { path: supabase/webhooks.sql, target: /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql, read_only: true }
+        - { path: supabase/roles.sql, target: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql, read_only: true }
+        - { path: supabase/jwt.sql, target: /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql, read_only: true }
+      health:
+        command: [pg_isready, -U, postgres, -h, localhost]
+        interval_seconds: 5
+        retries: 30
+      shm_mb: 256
+
+    - name: auth
+      image: supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b
+      depends_on: [supabase-db]
+      env:
+        GOTRUE_API_HOST: 0.0.0.0
+        GOTRUE_API_PORT: "9999"
+        API_EXTERNAL_URL: "{{.Settings.api_url}}"
+        GOTRUE_DB_DRIVER: postgres
+        GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:{{.Settings.postgres_password}}@supabase-db:5432/postgres"
+        GOTRUE_SITE_URL: "{{.Settings.url}}"
+        GOTRUE_URI_ALLOW_LIST: "{{.Settings.url}},{{.Settings.url}}/**"
+        GOTRUE_DISABLE_SIGNUP: '{{if eq .Settings.registration "open"}}false{{else}}true{{end}}'
+        GOTRUE_JWT_ADMIN_ROLES: service_role
+        GOTRUE_JWT_AUD: authenticated
+        GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+        GOTRUE_JWT_EXP: "3600"
+        GOTRUE_JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+        GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+        # No mail server is set up, so addresses count as confirmed.
+        GOTRUE_MAILER_AUTOCONFIRM: "true"
+        GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+        GOTRUE_SMS_AUTOCONFIRM: "false"
+        GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+        GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+        GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+        GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+        GOTRUE_SECURITY_SB_FORWARDED_FOR_ENABLED: "true"
+        GOTRUE_HOOK_BEFORE_USER_CREATED_ENABLED: "true"
+        GOTRUE_HOOK_BEFORE_USER_CREATED_URI: pg-functions://postgres/public/before_user_created_hook
+      health:
+        command: [wget, --no-verbose, --tries=1, --spider, "http://localhost:9999/health"]
+        interval_seconds: 5
+        retries: 30
+
+    - name: rest
+      image: postgrest/postgrest:v14.18@sha256:c7cd7e265a85b05248abf53f4473fcec7e327c282d0bd0cf60f1551996d09fcf
+      depends_on: [supabase-db]
+      env:
+        PGRST_DB_URI: "postgres://authenticator:{{.Settings.postgres_password}}@supabase-db:5432/postgres"
+        PGRST_DB_SCHEMAS: public,storage,graphql_public
+        PGRST_DB_ANON_ROLE: anon
+        PGRST_JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        PGRST_DB_USE_LEGACY_GUCS: "false"
+        PGRST_APP_SETTINGS_JWT_EXP: "3600"
+
+    - name: realtime-dev
+      image: supabase/realtime:v2.153.6@sha256:4edfd6a2f976fbf9e46c084493e220fe6989bb19e898881f56339ffc29c2c2e7
+      depends_on: [supabase-db]
+      env:
+        PORT: "4000"
+        DB_HOST: supabase-db
+        DB_PORT: "5432"
+        DB_USER: supabase_admin
+        DB_PASSWORD: "{{.Settings.postgres_password}}"
+        DB_NAME: postgres
+        DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+        DB_ENC_KEY: supabaserealtime
+        API_JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        METRICS_JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        SECRET_KEY_BASE: '{{sha256 (print .Settings.jwt_seed "/realtime")}}'
+        ERL_AFLAGS: -proto_dist inet_tcp
+        DNS_NODES: "''"
+        RLIMIT_NOFILE: "10000"
+        APP_NAME: realtime
+        SEED_SELF_HOST: "true"
+        RUN_JANITOR: "true"
+        CLIENT_PRESENCE_MAX_CALLS: "60"
+        CLIENT_PRESENCE_WINDOW_MS: "30000"
+        CHANNEL_ERROR_BACKOFF_MS: "100"
+      health:
+        command: [curl, -sSfL, --head, -o, /dev/null, -H, 'Authorization: Bearer {{jwt (sha256 .Settings.jwt_seed) "anon"}}', "http://localhost:4000/api/tenants/realtime-dev/health"]
+        interval_seconds: 5
+        retries: 40
+
+    - name: storage
+      image: supabase/storage-api:v1.90.0@sha256:b93ea65dad8eee7af34ab57d062915fcf085d4eb1a647f38f3bcea25d99850b1
+      depends_on: [supabase-db, rest, imgproxy]
+      env:
+        ANON_KEY: '{{jwt (sha256 .Settings.jwt_seed) "anon"}}'
+        SERVICE_KEY: '{{jwt (sha256 .Settings.jwt_seed) "service_role"}}'
+        POSTGREST_URL: http://rest:3000
+        PGRST_JWT_SECRET: "{{sha256 .Settings.jwt_seed}}"
+        DATABASE_URL: "postgres://supabase_storage_admin:{{.Settings.postgres_password}}@supabase-db:5432/postgres"
+        FILE_SIZE_LIMIT: '{{mul .Settings.upload_limit_mb 1048576}}'
+        STORAGE_BACKEND: file
+        FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+        TENANT_ID: stub
+        REGION: stub
+        GLOBAL_S3_BUCKET: stub
+        ENABLE_IMAGE_TRANSFORMATION: "true"
+        IMGPROXY_URL: http://imgproxy:5001
+      volumes:
+        - { path: data/storage, target: /var/lib/storage }
+      health:
+        command: [wget, --no-verbose, --tries=1, --spider, "http://127.0.0.1:5000/status"]
+        interval_seconds: 5
+        retries: 30
+
+    - name: imgproxy
+      image: darthsim/imgproxy:v4.0.22@sha256:b2953f6a7417be7e8a88819da9d3428270ca942cff280f8e143406fb5f962ed0
+      env:
+        IMGPROXY_BIND: ":5001"
+        IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+        IMGPROXY_USE_ETAG: "true"
+        IMGPROXY_AUTO_WEBP: "true"
+        IMGPROXY_PREFERRED_FORMATS: jpeg,png,gif,webp,avif
+        IMGPROXY_MAX_SRC_RESOLUTION: "50"
+        IMGPROXY_MAX_ANIMATION_FRAMES: "120"
+      volumes:
+        - { path: data/storage, target: /var/lib/storage }
+      health:
+        command: [imgproxy, health]
+
+    - name: supabase-kong
+      image: kong:3.9.4@sha256:0bf9f0968cbe341a97dccbfe43529bd1e276b5b911cc75015370f1d4b4a256fb
+      depends_on: [auth, rest, storage]
+      env:
+        KONG_DATABASE: "off"
+        KONG_DECLARATIVE_CONFIG: /etc/anyserve/kong.yml
+        # Kong's own prefix folder belongs to its image user.
+        KONG_PREFIX: /tmp/kong
+        KONG_DNS_ORDER: LAST,A,CNAME
+        KONG_DNS_VALID_TTL: "5"
+        KONG_DNS_NOT_FOUND_TTL: "1"
+        KONG_PLUGINS: request-transformer,cors,key-auth,acl
+        KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+        KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+        KONG_PROXY_ACCESS_LOG: /dev/stdout combined
+      volumes:
+        - { path: config/kong.yml, target: /etc/anyserve/kong.yml, read_only: true }
+      health:
+        command: [kong, health]
+
+    - name: redis
+      image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+      command: [redis-server, --appendonly, "yes", --dir, /data, --requirepass, "{{.Settings.redis_password}}"]
+      volumes:
+        - { path: data/redis, target: /data }
+      health:
+        command: [redis-cli, -a, "{{.Settings.redis_password}}", --no-auth-warning, ping]
+        interval_seconds: 5
+
+    # Harmony's database migrations, the listener role, the instance's name,
+    # domain and registration policy. Runs on every start; finished
+    # migrations are skipped.
+    - name: migrate
+      image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+      once: true
+      depends_on: [supabase-db, auth, realtime-dev, storage]
+      command: [sh, /scripts/migrate.sh]
+      env:
+        HOME: /tmp
+        PGHOST: supabase-db
+        PGPORT: "5432"
+        PGDATABASE: postgres
+        PGUSER: supabase_admin
+        PGPASSWORD: "{{.Settings.postgres_password}}"
+        PGSSLMODE: disable
+        PGCONNECT_TIMEOUT: "10"
+        MIGRATIONS_DIR: /src/db_schema/migrations
+        SCHEMA_WAIT: "300"
+        LISTENER_PASSWORD: "{{.Settings.listener_password}}"
+        DOMAIN: "{{urlHost .Settings.url}}"
+        INSTANCE_NAME: "{{.Settings.instance_name}}"
+        STORAGE_ORIGIN: "{{lower .Settings.api_url}}"
+        FILE_SIZE_LIMIT: '{{mul .Settings.upload_limit_mb 1048576}}'
+        REGISTRATION: "{{.Settings.registration}}"
+      volumes:
+        - { path: harmony/db_schema, target: /src/db_schema, read_only: true }
+        - { path: harmony/migrate.sh, target: /scripts/migrate.sh, read_only: true }
+
+    - name: federation-server
+      image: ghcr.io/y4my4my4m/harmony-federation:1.9.7@sha256:9b00283d4cd01e79d98f2400015bf788bc3dc887e0697b04b27d9c00865bdab8
+      depends_on: [redis, migrate, supabase-kong]
+      env: &federation
+        NODE_ENV: production
+        PORT: "3001"
+        FEDERATION_MODE: server
+        INSTANCE_NAME: "{{.Settings.instance_name}}"
+        INSTANCE_DOMAIN: "{{urlHost .Settings.url}}"
+        API_BASE_URL: "{{.Settings.url}}"
+        APP_URL: "{{.Settings.url}}"
+        CORS_ORIGIN: "{{.Settings.url}}"
+        SUPABASE_URL: http://supabase-kong:8000
+        PUBLIC_SUPABASE_URL: "{{.Settings.api_url}}"
+        SUPABASE_ANON_KEY: '{{jwt (sha256 .Settings.jwt_seed) "anon"}}'
+        SUPABASE_SERVICE_ROLE_KEY: '{{jwt (sha256 .Settings.jwt_seed) "service_role"}}'
+        REDIS_URL: "redis://:{{.Settings.redis_password}}@redis:6379"
+        USE_BULLMQ_QUEUE: "true"
+        FEDERATION_LISTENER_URL: "postgresql://harmony_listener:{{.Settings.listener_password}}@supabase-db:5432/postgres"
+        INTERNAL_API_SECRET: "{{.Settings.internal_secret}}"
+        VAPID_SUBJECT: "mailto:{{.Settings.admin_email}}"
+      health:
+        command: [node, -e, "require('http').get('http://localhost:3001/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+        interval_seconds: 10
+
+    - name: federation-worker
+      image: ghcr.io/y4my4my4m/harmony-federation:1.9.7@sha256:9b00283d4cd01e79d98f2400015bf788bc3dc887e0697b04b27d9c00865bdab8
+      depends_on: [redis, migrate, federation-server]
+      env:
+        <<: *federation
+        FEDERATION_MODE: worker
+      # The image's own check asks for the server's port, which a worker
+      # doesn't open.
+      health:
+        disable: true
+
+    # Creates (or promotes) the admin account and applies the registration
+    # policy. An existing account keeps its password.
+    - name: admin
+      image: ghcr.io/y4my4my4m/harmony-federation:1.9.7@sha256:9b00283d4cd01e79d98f2400015bf788bc3dc887e0697b04b27d9c00865bdab8
+      once: true
+      depends_on: [migrate, federation-server]
+      command: [node, /scripts/create-admin.mjs]
+      env:
+        SUPABASE_URL: http://supabase-kong:8000
+        SUPABASE_ANON_KEY: '{{jwt (sha256 .Settings.jwt_seed) "anon"}}'
+        SUPABASE_SERVICE_ROLE_KEY: '{{jwt (sha256 .Settings.jwt_seed) "service_role"}}'
+        FEDERATION_URL: http://federation-server:3001
+        ADMIN_EMAIL: "{{.Settings.admin_email}}"
+        ADMIN_USERNAME: "{{.Settings.admin_username}}"
+        ADMIN_PASSWORD: "{{.Settings.admin_password}}"
+        REGISTRATION: "{{.Settings.registration}}"
+      volumes:
+        - { path: harmony/create-admin.mjs, target: /scripts/create-admin.mjs, read_only: true }
+
+    - name: web
+      image: ghcr.io/y4my4my4m/harmony-web:1.9.7@sha256:39bb90c4fc6d5d17c8567d640e07c4fdbe4a4893fcae0ceb5e02488d913eb584
+      # Starting nginx by its path skips the image's startup scripts, which
+      # write config.json as root; Anyserve writes it instead.
+      command: [/usr/sbin/nginx, -c, /etc/anyserve/nginx.conf, -g, daemon off;]
+      volumes:
+        - { path: config/nginx.conf, target: /etc/anyserve/nginx.conf, read_only: true }
+        - { path: config/web-config.json, target: /usr/share/nginx/html/config.json, read_only: true }
+
+    - name: media-cache
+      image: nginx:1.31-alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
+      depends_on: [supabase-kong]
+      command: [/usr/sbin/nginx, -c, /etc/anyserve/nginx.conf, -g, daemon off;]
+      volumes:
+        - { path: config/nginx.conf, target: /etc/anyserve/nginx.conf, read_only: true }
+        - { path: harmony/media-cache.conf, target: /etc/nginx/conf.d/default.conf, read_only: true }
+        - { path: data/media-cache, target: /var/cache/nginx/media }
+
+    # Upstream's Caddyfile, over plain HTTP on two ports: the app and the API.
+    - name: router
+      image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+      depends_on: [web, federation-server, supabase-kong, media-cache]
+      # The image's caddy binary carries a file capability, which a container
+      # with every capability dropped can't run; a plain copy can.
+      command: [sh, -c, "cp /usr/bin/caddy /tmp/caddy && exec /tmp/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+      env:
+        DOMAIN: "http://:8080"
+        DB_DOMAIN: "http://:8081"
+        # Unused on plain HTTP; the Caddyfile needs a value.
+        CADDY_TLS: internal
+        ENABLE_VOICE: "false"
+        XDG_DATA_HOME: /tmp/caddy-data
+        XDG_CONFIG_HOME: /tmp/caddy-config
+      volumes:
+        - { path: harmony/Caddyfile, target: /etc/caddy/Caddyfile, read_only: true }
+      ports:
+        - { port: http, target: 8080 }
+        - { port: api, target: 8081 }
+
+stop:
+  timeout_seconds: 60
+
+backup:
+  # The database is copied with its files, so the stack is stopped first.
+  stop_first: true
+  paths: [data, config]
+
+linuxgsm:
+  status: missing
+
+notes:
+  - Needs Docker with the Compose plugin, about 3 GB of images and 2 GB of memory.
+  - "Two addresses: the app (port http) and its API (port api). Behind an HTTPS proxy, point https://chat.example.com at http and https://db.chat.example.com at api, then set url and api_url to those. Both listen on 127.0.0.1 only; --expose http --expose api opens them to your network."
+  - The admin account is created on every start if it's missing; `anyserve config <name> --show-secrets` shows its password. Changing admin_password later doesn't change an existing account's password.
+  - Never change jwt_seed or postgres_password after the first start.
+  - Without a mail server, new addresses count as confirmed and invitations are links you share yourself. Voice (LiveKit), bots, push notifications and the Discord bridge aren't set up.
+  - Harmony is AGPL-3.0 with attribution and trademark terms; this runs its unmodified images. An unofficial package, not endorsed by the Harmony project.

@@ -100,6 +100,7 @@ with `--expose http` at install or `anyserve config <name> --expose http` later.
 | Gitea | Git hosting (rootless) | 3000, SSH 2222 |
 | Gotify | Push notifications | 8070 |
 | Grafana | Dashboards | 3002 |
+| Harmony | Federated Discord-style chat, with its Supabase backend | 8090, API 8091 |
 | Immich | Photo and video library | 2283 |
 | Jellyfin | Media server (shares a folder you choose) | 8096 |
 | Lemmy | Link aggregator for the fediverse | 10633 |
