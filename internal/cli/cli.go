@@ -328,7 +328,7 @@ func printPlan(cmd *cobra.Command, a *app.App, p *app.Plan) {
 		fmt.Fprintf(out, "  %s = %s\n", s.Key, displayValue(s, p.Settings[s.Key]))
 	}
 	fmt.Fprintln(out, "Ports:")
-	fmt.Fprint(out, app.FormatPortsShared(d, p.Ports, a.SharedPorts(d, p.Req.Domain, p.Req.DomainPort)))
+	fmt.Fprint(out, app.FormatPortsShared(d, p.Ports, a.SharedPorts(d, p.Req.Domain, p.Req.DomainPort), p.Req.Expose))
 	for _, m := range p.Moved {
 		fmt.Fprintf(out, "Note: %s\n", m)
 	}
@@ -637,10 +637,7 @@ func configCmd() *cobra.Command {
 			}
 			ps, _ := d.ResolvePorts(in.Ports)
 			fmt.Fprintln(out, "Ports:")
-			fmt.Fprint(out, app.FormatPortsShared(d, ps, a.SharedPorts(d, in.Domain, in.DomainPort)))
-			if len(in.Expose) > 0 {
-				fmt.Fprintf(out, "Opened to the network with --expose: %s\n", strings.Join(in.Expose, ", "))
-			}
+			fmt.Fprint(out, app.FormatPortsShared(d, ps, a.SharedPorts(d, in.Domain, in.DomainPort), in.Expose))
 			if in.Domain != "" {
 				shown := in.Domain
 				if t, err := app.TargetFor(d, in.DomainPort); err == nil {
