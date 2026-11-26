@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jonsjava/anyserve/internal/app"
+	"github.com/jonsjava/anyserve/internal/instance"
 	"github.com/jonsjava/anyserve/internal/rcon"
 	"github.com/jonsjava/anyserve/internal/registry"
 	"github.com/jonsjava/anyserve/internal/spec"
@@ -300,6 +301,7 @@ func installCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			printAddresses(cmd.OutOrStdout(), in, plan.Entry.Def, in.Ports)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nNext:\n  anyserve start %s\n  anyserve logs %s -f\n  anyserve ports %s\n", in.Name, in.Name, in.Name)
 			return nil
 		},
@@ -315,8 +317,21 @@ func installCmd() *cobra.Command {
 	cmd.Flags().StringVar(&req.Domain, "domain", "", "give the instance a domain: HTTPS for apps, the shared port for Minecraft, a DNS name otherwise (`anyserve dns`)")
 	cmd.Flags().StringVar(&req.DomainPort, "domain-port", "", "which port the domain reaches (default: the app's web port)")
 	cmd.Flags().BoolVar(&req.Isolate, "isolate", false, "run a native server in a container that sees only its own folder (Linux, Docker)")
-	cmd.Flags().StringArrayVar(&req.Expose, "expose", nil, "open a private port (such as a web UI) to the network instead of this machine only (stacks; repeatable)")
+	cmd.Flags().StringArrayVar(&req.Expose, "expose", nil, "open only these private ports to the network (stacks; repeatable; default: all but one behind the HTTPS proxy)")
+	cmd.Flags().BoolVar(&req.Private, "private", false, "keep a stack's private ports on this machine only (apart from any --expose)")
 	return cmd
+}
+
+// printAddresses says where people reach an instance's apps.
+func printAddresses(out io.Writer, in *instance.Instance, d *spec.Definition, ports map[string]int) {
+	addrs := app.Addresses(in, d, ports)
+	if len(addrs) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "\nOpen it at:")
+	for _, a := range addrs {
+		fmt.Fprintf(out, "  %-6s %s\n", a[0], a[1])
+	}
 }
 
 func printPlan(cmd *cobra.Command, a *app.App, p *app.Plan) {
@@ -638,6 +653,7 @@ func configCmd() *cobra.Command {
 			ps, _ := d.ResolvePorts(in.Ports)
 			fmt.Fprintln(out, "Ports:")
 			fmt.Fprint(out, app.FormatPortsShared(d, ps, a.SharedPorts(d, in.Domain, in.DomainPort), in.Expose))
+			printAddresses(out, in, d, ps)
 			if in.Domain != "" {
 				shown := in.Domain
 				if t, err := app.TargetFor(d, in.DomainPort); err == nil {

@@ -3,7 +3,7 @@ id: syncthing
 name: Syncthing
 description: Continuous peer-to-peer file sync between your computers and phones, with no cloud in between.
 homepage: https://syncthing.net
-version: "2.1.7-1"
+version: "2.1.7-2"
 kind: stack
 
 settings:
@@ -12,13 +12,23 @@ settings:
     description: Shared read-write at /sync. Add folders under /sync in the web UI.
     type: folder
     default: ~/Sync
+  - key: gui_user
+    prompt: Web UI user name
+    type: string
+    default: admin
+  - key: gui_password
+    prompt: Web UI password (leave empty to generate one)
+    description: Set on every start, so the web UI is never open without one.
+    type: string
+    secret: true
+    generate: true
 
 ports:
   - name: gui
     port: 8384
     protocol: tcp
     public: false
-    description: The web UI. Set a GUI password before exposing it.
+    description: The web UI, behind the gui_user and gui_password login.
   - name: sync
     port: 22000
     protocol: both
@@ -29,8 +39,13 @@ stack:
   services:
     - name: syncthing
       image: syncthing/syncthing:2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546
+      # Sets the web UI login before Syncthing starts. $$ is a literal $ for
+      # the shell (Compose would substitute a single one itself).
+      entrypoint: [/bin/sh, -c, 'printf %s "$$GUI_PASSWORD" | /bin/syncthing generate --gui-user "$$GUI_USER" --gui-password - >/dev/null && exec /bin/syncthing']
       env:
         STGUIADDRESS: 0.0.0.0:8384
+        GUI_USER: "{{.Settings.gui_user}}"
+        GUI_PASSWORD: "{{.Settings.gui_password}}"
       volumes:
         - { path: data, target: /var/syncthing }
         - { setting: sync_folder, target: /sync }
@@ -47,7 +62,7 @@ linuxgsm:
   notes: Not a game server, so it doesn't belong in LinuxGSM.
 
 notes:
-  - Open the web UI and set a GUI user and password first (Actions, Settings, GUI).
+  - The web UI asks for gui_user and gui_password; `anyserve config <name> --show-secrets` shows the generated password. A password changed in the web UI is put back on the next start, so change it with `anyserve config <name> --set gui_password=...`.
   - Share folders under /sync, which is the folder you chose on this machine.
   - Devices find each other through Syncthing's global discovery and relays. Local discovery on the LAN isn't available inside a container, so add devices by ID.
   - Backups cover Syncthing's keys and settings, not the synced files.

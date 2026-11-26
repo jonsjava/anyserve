@@ -3,7 +3,7 @@ id: mealie
 name: Mealie
 description: A recipe manager and meal planner that imports recipes from any website by URL.
 homepage: https://mealie.io
-version: "3.31.0-1"
+version: "3.31.0-2"
 kind: stack
 
 settings:
@@ -11,6 +11,7 @@ settings:
     prompt: Address people will use (e.g. https://recipes.example.com)
     type: string
     default: http://localhost:9925
+    address: { port: http }
   - key: allow_signup
     prompt: Let anyone with the address create an account?
     type: bool
@@ -51,4 +52,3 @@ linuxgsm:
 
 notes:
   - "Log in with changeme@example.com and password MyPassword, then change both straight away."
-  - To reach it from other computers on your network, add `--expose http`.

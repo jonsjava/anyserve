@@ -3,7 +3,7 @@ id: miniflux
 name: Miniflux
 description: A minimalist, fast feed reader for RSS, Atom and JSON Feed, with a clean web UI and API.
 homepage: https://miniflux.app
-version: "2.3.5-1"
+version: "2.3.5-2"
 kind: stack
 
 settings:
@@ -11,6 +11,7 @@ settings:
     prompt: Address people will use (e.g. https://rss.example.com)
     type: string
     default: http://localhost:8085
+    address: { port: http }
   - key: admin_user
     prompt: Admin user name (created on first start)
     type: string
@@ -75,4 +76,3 @@ linuxgsm:
   notes: Not a game server, so it doesn't belong in LinuxGSM.
 
 notes:
-  - To reach it from other computers on your network, add `--expose http`.

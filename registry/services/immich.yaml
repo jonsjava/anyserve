@@ -3,7 +3,7 @@ id: immich
 name: Immich
 description: A self-hosted photo and video library with phone backup, face recognition and smart search.
 homepage: https://immich.app
-version: "3.4.2-1"
+version: "3.4.2-2"
 kind: stack
 
 settings:
@@ -91,5 +91,4 @@ linuxgsm:
 notes:
   - Create the admin account on your first visit.
   - Anyserve backups cover the database only, because photo libraries are often huge. Back up the library folder inside the instance with your usual tools as well.
-  - Phones need `--expose http` on your LAN, or an HTTPS proxy for use away from home.
   - Machine learning (faces, smart search) downloads its models on first use and needs a few GB of memory.

@@ -123,6 +123,9 @@ func runWizard(ctx context.Context, a *app.App) error {
 	for _, s := range d.Settings {
 		s := s
 		v := s.DefaultString()
+		if s.Address != nil {
+			v = "" // filled in from this machine's address and the port
+		}
 		raw[s.Key] = &v
 		title := s.Prompt
 		switch s.Type {
@@ -139,7 +142,7 @@ func runWizard(ctx context.Context, a *app.App) error {
 		default:
 			in := huh.NewInput().Title(title).Description(s.Description).Value(raw[s.Key]).
 				Validate(func(val string) error {
-					if val == "" && s.Generate {
+					if val == "" && (s.Generate || s.Address != nil) {
 						return nil
 					}
 					_, err := s.Convert(val)
@@ -150,6 +153,9 @@ func runWizard(ctx context.Context, a *app.App) error {
 			}
 			if s.Generate {
 				in = in.Placeholder("leave empty to generate a strong password")
+			}
+			if s.Address != nil {
+				in = in.Placeholder("leave empty to use this machine's address")
 			}
 			fields = append(fields, in)
 		}

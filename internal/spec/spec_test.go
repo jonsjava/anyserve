@@ -100,13 +100,17 @@ func TestMinimalIsValid(t *testing.T) {
 
 func TestRejectsUnsafeAndUnknown(t *testing.T) {
 	cases := map[string]struct{ old, new, want string }{
-		"path escape": {"command: demo", "command: ../../bin/sh", "inside the instance directory"},
-		"absolute":    {"command: demo", "command: /bin/sh", "relative"},
-		"http":        {"https://example.com", "http://example.com", "https://"},
-		"bad step":    {"ports:", "steps:\n  - { type: shell, path: x }\nports:", "unknown step type"},
-		"step escape": {"ports:", "steps:\n  - { type: touch, path: ../x }\nports:", "inside the instance directory"},
-		"missing run": {"platforms: [linux]", "platforms: [linux, windows]", `no entry for platform "windows"`},
-		"bad port":    {"port: 1234", "port: 70000", "1-65535"},
+		"path escape":  {"command: demo", "command: ../../bin/sh", "inside the instance directory"},
+		"absolute":     {"command: demo", "command: /bin/sh", "relative"},
+		"http":         {"https://example.com", "http://example.com", "https://"},
+		"bad step":     {"ports:", "steps:\n  - { type: shell, path: x }\nports:", "unknown step type"},
+		"step escape":  {"ports:", "steps:\n  - { type: touch, path: ../x }\nports:", "inside the instance directory"},
+		"missing run":  {"platforms: [linux]", "platforms: [linux, windows]", `no entry for platform "windows"`},
+		"bad port":     {"port: 1234", "port: 70000", "1-65535"},
+		"address port": {"ports:", "settings:\n  - { key: url, prompt: URL, type: string, address: { port: web } }\nports:", `address port "web" isn't one of the ports`},
+		"address type": {"ports:", "settings:\n  - { key: url, prompt: URL, type: int, address: { port: game } }\nports:", "address only works with string settings"},
+		"address form": {"ports:", "settings:\n  - { key: url, prompt: URL, type: string, address: { port: game, form: path } }\nports:", "form must be url or host"},
+		"address path": {"ports:", "settings:\n  - { key: url, prompt: URL, type: string, address: { port: game, form: host, path: / } }\nports:", "needs the url form"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

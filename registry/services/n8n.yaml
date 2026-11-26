@@ -3,7 +3,7 @@ id: n8n
 name: n8n
 description: A workflow automation tool. Connect apps and APIs with a visual editor, like a self-hosted Zapier.
 homepage: https://n8n.io
-version: "2.48.7-1"
+version: "2.48.7-2"
 kind: stack
 
 settings:
@@ -12,6 +12,7 @@ settings:
     description: Webhook URLs shown in the editor start with this.
     type: string
     default: http://localhost:5678/
+    address: { port: http, path: / }
   - key: encryption_key
     prompt: Key that encrypts saved credentials (leave empty to generate one)
     description: Keep it safe. Credentials can't be read without it.

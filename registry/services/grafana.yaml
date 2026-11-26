@@ -3,7 +3,7 @@ id: grafana
 name: Grafana
 description: Dashboards and alerts for metrics and logs from Prometheus, InfluxDB, Loki, databases and more.
 homepage: https://grafana.com/oss/grafana/
-version: "13.3.1-1"
+version: "13.3.1-2"
 kind: stack
 
 settings:
@@ -20,6 +20,7 @@ settings:
     prompt: Address people will use (e.g. https://grafana.example.com)
     type: string
     default: http://localhost:3002
+    address: { port: http }
 
 ports:
   - name: http

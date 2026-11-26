@@ -182,6 +182,24 @@ type Setting struct {
 	MustAccept bool `yaml:"must_accept,omitempty" json:"must_accept,omitempty"`
 	Min        *int `yaml:"min,omitempty" json:"min,omitempty"`
 	Max        *int `yaml:"max,omitempty" json:"max,omitempty"`
+	// Address fills a string setting, when the user leaves it empty, with
+	// the address people reach one of the app's ports at: https://<domain>
+	// when the HTTPS proxy serves that port, else http://<this machine's
+	// address>:<port>. Default stays the fallback for older versions.
+	Address *Address `yaml:"address,omitempty" json:"address,omitempty"`
+}
+
+// Address says which port an address setting points at, and how to write
+// it.
+type Address struct {
+	Port string `yaml:"port" json:"port"`
+	// Form is url (the default) or host (the host name alone).
+	Form string `yaml:"form,omitempty" json:"form,omitempty"`
+	// Path is added to a url, such as "/".
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// Once fills it at install only, for apps that can't change it after
+	// the first start; later port or domain changes leave it alone.
+	Once bool `yaml:"once,omitempty" json:"once,omitempty"`
 }
 
 // Choice is one option of a choice setting.
@@ -602,6 +620,20 @@ func (d *Definition) Validate() error {
 		}
 		if s.Generate && s.Type != "string" {
 			add("%s: generate only works with string settings", where)
+		}
+		if ad := s.Address; ad != nil {
+			if s.Type != "string" {
+				add("%s: address only works with string settings", where)
+			}
+			if _, ok := d.Port(ad.Port); !ok {
+				add("%s: address port %q isn't one of the ports", where, ad.Port)
+			}
+			if ad.Form != "" && ad.Form != "url" && ad.Form != "host" {
+				add("%s: address form must be url or host", where)
+			}
+			if ad.Path != "" && (ad.Form == "host" || !strings.HasPrefix(ad.Path, "/")) {
+				add("%s: address path must start with / and needs the url form", where)
+			}
 		}
 	}
 

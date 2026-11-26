@@ -3,15 +3,16 @@ id: vaultwarden
 name: Vaultwarden
 description: A lightweight server for the Bitwarden password manager apps and browser extensions.
 homepage: https://github.com/dani-garcia/vaultwarden
-version: "1.37.5-1"
+version: "1.37.5-2"
 kind: stack
 
 settings:
   - key: domain
     prompt: Full address people will use, with https:// (e.g. https://vault.example.com)
-    description: Bitwarden apps and web vault links use this. Leave the default only for testing on this machine.
+    description: Bitwarden apps and web vault links use this. Filled in from this machine's address unless you give one.
     type: string
     default: http://localhost:8222
+    address: { port: http }
   - key: signups_allowed
     prompt: Let anyone with the address create an account?
     description: Turn this off after creating your own accounts, or invite people from the admin page instead.
@@ -63,4 +64,3 @@ linuxgsm:
 notes:
   - Bitwarden apps and browsers only unlock vaults over HTTPS (or on http://localhost). Put an HTTPS reverse proxy such as Caddy in front of it, and set domain to that address.
   - The admin page is at /admin. See the token with `anyserve config <name> --show-secrets`.
-  - To reach it from other computers on your network, add `--expose http` (at install, or later with `anyserve config`).

@@ -35,6 +35,9 @@ type StackService struct {
 	Name string `yaml:"name" json:"name"`
 	// Image must be pinned by digest: name:tag@sha256:<64 hex>.
 	Image string `yaml:"image" json:"image"`
+	// Entrypoint replaces the image's entrypoint, for images whose
+	// entrypoint already names the program. Each item is a template.
+	Entrypoint []string `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
 	// Command replaces the image's command. Each item is a template.
 	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
@@ -141,6 +144,11 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 				add("%s.command[%d]: template: %v", where, j, err)
 			}
 		}
+		for j, c := range s.Entrypoint {
+			if _, err := template.New("c").Funcs(funcs).Parse(c); err != nil {
+				add("%s.entrypoint[%d]: template: %v", where, j, err)
+			}
+		}
 		for k, v := range s.Env {
 			if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(k) {
 				add("%s.env: %q isn't a valid variable name", where, k)
@@ -244,6 +252,16 @@ func (d *Definition) RenderStack(ctx Context) ([]RenderedService, error) {
 	var out []RenderedService
 	for _, s := range d.Stack.Services {
 		r := RenderedService{StackService: s}
+		r.Entrypoint = nil
+		for i, c := range s.Entrypoint {
+			v, err := Render(fmt.Sprintf("stack.%s.entrypoint[%d]", s.Name, i), c, ctx)
+			if err != nil {
+				return nil, err
+			}
+			if v != "" {
+				r.Entrypoint = append(r.Entrypoint, v)
+			}
+		}
 		r.Command = nil
 		for i, c := range s.Command {
 			v, err := Render(fmt.Sprintf("stack.%s.command[%d]", s.Name, i), c, ctx)
