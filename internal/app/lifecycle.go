@@ -123,12 +123,10 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 			return nil, fmt.Errorf("%s only downloads with a Steam account that owns it: %w", e.Def.Name, err)
 		}
 	}
-	if r, ok := e.Def.Run[runtime.GOOS]; ok {
-		for _, l := range r.Requires() {
-			if _, err := exec.LookPath(l.Program); err != nil {
-				warnings = append(warnings, fmt.Sprintf("%s needs %s (%s isn't on PATH): install %s", e.Def.Name, l.Program, l.Program, l.Install))
-			}
-		}
+	if !req.Isolate && t.Name() == target.Default() {
+		var notes []string
+		p.Req.Isolate, notes = runtimeCheck(e.Def, req.Name, runtime.GOOS, exec.LookPath, func() error { return target.CanIsolate(e.Def) })
+		warnings = append(warnings, notes...)
 	}
 	p.Warnings = warnings
 	return p, nil
@@ -1081,6 +1079,37 @@ func (a *App) SharedPorts(d *spec.Definition, domain, domainPort string) map[str
 		return map[string]int{t.Port.Name: 443}
 	}
 	return nil
+}
+
+// runtimeCheck looks for the programs a native server is started through
+// (such as Java). When one is missing and the server can run in its
+// definition's container, which has it, it reports isolate rather than
+// installing something that can't start; otherwise it warns.
+func runtimeCheck(d *spec.Definition, name, goos string, lookPath func(string) (string, error), canIsolate func() error) (isolate bool, notes []string) {
+	r, ok := d.Run[goos]
+	if !ok {
+		return false, nil
+	}
+	var missing []spec.Launcher
+	for _, l := range r.Requires() {
+		if _, err := lookPath(l.Program); err != nil {
+			missing = append(missing, l)
+		}
+	}
+	if len(missing) == 0 {
+		return false, nil
+	}
+	if d.Container != nil && canIsolate() == nil {
+		var progs []string
+		for _, l := range missing {
+			progs = append(progs, l.Program)
+		}
+		return true, []string{fmt.Sprintf("%s isn't installed here, so %s will run in a container that has it (%s). To run it directly instead, install it and then run `anyserve config %s --no-isolate`.", strings.Join(progs, " and "), d.Name, d.Container.Image, name)}
+	}
+	for _, l := range missing {
+		notes = append(notes, fmt.Sprintf("%s needs %s, which isn't installed, and won't start until it is: install %s", d.Name, l.Program, l.Install))
+	}
+	return false, notes
 }
 
 // FormatPorts explains which ports to forward and which to keep private.
