@@ -1102,7 +1102,7 @@ func FormatPortsShared(d *spec.Definition, ports map[string]int, shared map[stri
 	for _, p := range d.Ports {
 		vis := "keep private"
 		if open[p.Name] {
-			vis = "open to your network"
+			vis = "open to network"
 		}
 		if p.Public {
 			vis = "forward on router"
