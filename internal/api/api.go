@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /v1/instances", s.list)
 	m.HandleFunc("GET /v1/instances/{name}", s.instance(s.status))
 	m.HandleFunc("GET /v1/instances/{name}/logs", s.instance(s.logs))
+	m.HandleFunc("GET /v1/instances/{name}/stats", s.instance(s.stats))
 	m.HandleFunc("GET /v1/instances/{name}/backups", s.instance(s.backups))
 	m.HandleFunc("GET /v1/instances/{name}/ports", s.instance(s.ports))
 	for _, act := range []string{"start", "stop", "restart", "update", "backup"} {
@@ -289,6 +290,21 @@ func (s *Server) ports(q *request) {
 		return
 	}
 	writeJSON(q.w, http.StatusOK, map[string]string{"report": report})
+}
+
+// stats is one reading of an instance's resource use; the UI polls it and
+// turns the running totals into rates.
+func (s *Server) stats(q *request) {
+	st, err := q.app.Stats(q.name)
+	if errors.Is(err, target.ErrNoStats) {
+		fail(q.w, http.StatusNotImplemented, err, "")
+		return
+	}
+	if err != nil && !st.Running {
+		fail(q.w, http.StatusInternalServerError, err, "")
+		return
+	}
+	writeJSON(q.w, http.StatusOK, st)
 }
 
 func (s *Server) logs(q *request) {

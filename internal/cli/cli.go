@@ -428,9 +428,48 @@ func statusCmd() *cobra.Command {
 				fmt.Fprintf(out, "Update:      definition %s is available; run `anyserve update %s`\n", l.Upgrade, in.Name)
 			}
 			fmt.Fprintf(out, "Auto-update: %s\n", app.Policy(in))
+			printStats(out, a, in.Name)
 			return nil
 		},
 	}
+}
+
+// printStats adds resource use to `status`: two readings a second apart,
+// for the CPU rate.
+func printStats(out io.Writer, a *app.App, name string) {
+	s1, err := a.Stats(name)
+	if err != nil || !s1.Running {
+		return
+	}
+	time.Sleep(time.Second)
+	s2, err := a.Stats(name)
+	if err != nil || !s2.Running {
+		return
+	}
+	if !s2.Started.IsZero() {
+		fmt.Fprintf(out, "Uptime:      %s (since %s)\n", time.Since(s2.Started).Round(time.Second), s2.Started.Local().Format(time.DateTime))
+	}
+	if dt := s2.At.Sub(s1.At).Seconds(); dt > 0 && s2.CPU >= s1.CPU {
+		fmt.Fprintf(out, "CPU:         %.1f%% (100%% is one of %d cores)\n", float64(s2.CPU-s1.CPU)/1e9/dt*100, s2.Cores)
+	}
+	fmt.Fprintf(out, "Memory:      %s of %s\n", byteSize(int64(s2.Memory)), byteSize(int64(s2.MemoryMax)))
+	fmt.Fprintf(out, "Disk:        %s\n", byteSize(s2.Disk))
+	if s2.Net {
+		fmt.Fprintf(out, "Network:     %s in, %s out since it started\n", byteSize(int64(s2.NetRx)), byteSize(int64(s2.NetTx)))
+	}
+}
+
+func byteSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func simpleCmd(use, short string, f func(a *app.App, name string) error, done string) *cobra.Command {
