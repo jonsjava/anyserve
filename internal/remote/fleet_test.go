@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/jonsjava/anyserve/internal/api"
 	"github.com/jonsjava/anyserve/internal/app"
 	"github.com/jonsjava/anyserve/internal/instance"
@@ -120,5 +122,67 @@ func TestFleet(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if code, _ := owner("GET", "/v1/nodes/box/v1/whoami"); code != http.StatusBadGateway {
 		t.Errorf("a removed node still answers: %d", code)
+	}
+}
+
+// A worker that stops answering (frozen, powered off, cut off) shows as
+// offline soon, and requests to it fail instead of hanging.
+func TestFleetFrozenNode(t *testing.T) {
+	every, wait := keepaliveEvery, keepaliveWait
+	keepaliveEvery, keepaliveWait = 100*time.Millisecond, 200*time.Millisecond
+	defer func() { keepaliveEvery, keepaliveWait = every, wait }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mApp := testHome(t)
+	ma, _ := mApp(io.Discard)
+	hostKey, _, err := LoadOrCreateHostKey(ma.Dirs.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{App: func() (*app.App, error) { return mApp(io.Discard) }, API: http.NotFoundHandler(), HostKey: hostKey, Log: t.Logf}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(ctx, l)
+	addr := l.Addr().String()
+
+	wApp := testHome(t)
+	wa, _ := wApp(io.Discard)
+	key, err := LoadOrCreateNodeKey(wa.Dirs.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _, _ := ma.NewJoinToken(Fingerprint(hostKey.PublicKey()))
+	if _, err := Join(addr, tok, "stuck", key); err != nil {
+		t.Fatal(err)
+	}
+	// Connect as the node, then never read anything: replies never come.
+	raw, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	_, _, _, err = ssh.NewClientConn(raw, addr, &ssh.ClientConfig{User: NodeUser, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connected := func() bool {
+		n := srv.Nodes()
+		return len(n) == 1 && n[0].Connected
+	}
+	if !connected() {
+		t.Fatal("the node never connected")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for connected() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if connected() {
+		t.Fatal("a frozen node still shows as connected")
+	}
+	if _, err := srv.DialNode(ctx, "stuck"); err == nil {
+		t.Error("dialing a frozen node worked")
 	}
 }
