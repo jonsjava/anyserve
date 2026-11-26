@@ -676,7 +676,14 @@
     for (const p of def.ports || []) {
       const input = el("input", { type: "number", min: 1, max: 65535, value: p.port });
       input.dataset.port = p.name;
-      pb.append(el("label", {}, p.name + " (" + p.protocol + (p.public ? ", public" : "") + ")", input));
+      const cell = el("div", { className: "port" }, el("label", {}, p.name + " (" + p.protocol + (p.public ? ", public" : "") + ")", input));
+      // A stack's private ports listen on this machine only unless opened.
+      if (def.kind === "stack" && !p.public) {
+        const open = el("input", { type: "checkbox" });
+        open.dataset.expose = p.name;
+        cell.append(el("label", { className: "check" }, open, "Open to your network (otherwise only this machine can reach it)"));
+      }
+      pb.append(cell);
     }
     plan(true);
   }
@@ -692,7 +699,8 @@
     $("#n-ports").querySelectorAll("[data-port]").forEach((i) => {
       if (i.dataset.touched) ports[i.dataset.port] = Number(i.value);
     });
-    return { service: def.ref, name: $("#n-name").value.trim(), settings, ports, domain: $("#n-domain").value.trim(), start: $("#n-start").checked, dry_run: dry };
+    const expose = [...$("#n-ports").querySelectorAll("[data-expose]:checked")].map((i) => i.dataset.expose);
+    return { service: def.ref, name: $("#n-name").value.trim(), settings, ports, expose, domain: $("#n-domain").value.trim(), start: $("#n-start").checked, dry_run: dry };
   }
   $("#n-ports").oninput = (ev) => { if (ev.target.dataset.port) ev.target.dataset.touched = "1"; };
   // Re-check a port as soon as it's changed, so warnings (in use, reserved)
