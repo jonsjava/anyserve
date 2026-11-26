@@ -234,6 +234,9 @@ type Port struct {
 	Public      bool   `json:"public"`
 	Exposed     bool   `json:"exposed,omitempty"`
 	Description string `json:"description,omitempty"`
+	// URL is where people reach it, for an app port that's open to the
+	// network or behind the HTTPS proxy.
+	URL string `json:"url,omitempty"`
 }
 
 func describe(a *app.App, l app.StatusLine) Instance {
@@ -246,8 +249,12 @@ func describe(a *app.App, l app.StatusLine) Instance {
 		Installed: in.Installed, Updated: in.Updated,
 	}
 	ports, _ := d.ResolvePorts(in.Ports)
+	urls := map[string]string{}
+	for _, a := range app.Addresses(in, d, ports) {
+		urls[a[0]] = a[1]
+	}
 	for _, p := range d.Ports {
-		out.Ports = append(out.Ports, Port{Name: p.Name, Port: ports[p.Name], Protocol: p.Protocol, Public: p.Public, Exposed: in.Exposed(p.Name), Description: p.Description})
+		out.Ports = append(out.Ports, Port{Name: p.Name, Port: ports[p.Name], Protocol: p.Protocol, Public: p.Public, Exposed: in.Exposed(p.Name), Description: p.Description, URL: urls[p.Name]})
 	}
 	if info, err := a.ConsoleDetails(in.Name); err == nil {
 		out.Console = string(info.Kind)

@@ -3,7 +3,7 @@ id: paperless-ngx
 name: Paperless-ngx
 description: A document manager that scans, OCRs and indexes your paper documents so you can search them.
 homepage: https://docs.paperless-ngx.com
-version: "3.5.1-1"
+version: "3.5.1-2"
 kind: stack
 
 settings:
@@ -11,6 +11,7 @@ settings:
     prompt: Address people will use (e.g. https://paperless.example.com)
     type: string
     default: http://localhost:8000
+    address: { port: http }
   - key: admin_user
     prompt: Admin user name (created on first start)
     type: string
@@ -114,5 +115,5 @@ linuxgsm:
 
 notes:
   - The first start takes a few minutes while Paperless sets up its database.
-  - Paperless only answers on the address in url (by default http://localhost:8000). If you use `--expose http` for your LAN, set url to the address you'll browse to, such as http://192.168.1.10:8000.
+  - Paperless only answers on the address in url, which is filled in from this machine's address (or the domain). If people browse to it by another name, set url to that.
   - Backups cover the database and your stored documents (media). Use Paperless's own exporter for a portable copy.

@@ -3,7 +3,7 @@ id: gotify
 name: Gotify
 description: A self-hosted server for sending and receiving push messages, with a web UI and Android app.
 homepage: https://gotify.net
-version: "3.1.1-1"
+version: "3.1.1-2"
 kind: stack
 
 settings:
@@ -47,4 +47,3 @@ linuxgsm:
 
 notes:
   - The admin password only applies on the first start. Change it later in the web UI.
-  - Phones need to reach the server, so add `--expose http` for your LAN or put an HTTPS proxy in front of it.

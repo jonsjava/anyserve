@@ -3,7 +3,7 @@ id: neko
 name: n.eko
 description: A shared Firefox in a container that friends use together from their own browsers, over WebRTC. Watch parties, browsing together, or a throwaway browser.
 homepage: https://neko.m1k1o.net
-version: "3.2.0-1"
+version: "3.2.0-2"
 kind: stack
 
 settings:
@@ -159,6 +159,6 @@ linuxgsm:
   notes: Not a game server, so it doesn't belong in LinuxGSM.
 
 notes:
-  - Viewers open the http port in their browser, so add `--expose http` for your network, or give it a domain behind your HTTPS proxy. The webrtc port (UDP and TCP) must be reachable by viewers too; open it in your firewall.
+  - Viewers open the http port in their browser. The webrtc port (UDP and TCP) must be reachable by viewers too; open it in your firewall.
   - Viewers log in with any display name and the viewer password; admins with the admin password. See them with `anyserve config <name> --show-secrets`.
   - It looks up this machine's public IP for viewers to connect to. For viewers on your LAN only, set public_address to this machine's LAN IP.

@@ -3,7 +3,7 @@ id: harmony
 name: Harmony
 description: A federated chat and social app (Discord-style servers and channels, on the fediverse), with its Supabase backend, as a stack of containers.
 homepage: https://github.com/y4my4my4m/harmony
-version: "1.9.7-1"
+version: "1.9.7-2"
 kind: stack
 
 # Harmony is AGPL-3.0 with attribution and trademark terms. This definition
@@ -55,11 +55,13 @@ settings:
     description: Federation uses this name; don't change it after people have joined.
     type: string
     default: http://localhost:8090
+    address: { port: http }
   - key: api_url
     prompt: Address of its API, on its own name (e.g. https://db.chat.example.com)
     description: Sign-in, data, uploads and live updates go here. Point it at the api port.
     type: string
     default: http://localhost:8091
+    address: { port: api }
   - key: instance_name
     prompt: Instance name
     type: string
@@ -569,7 +571,7 @@ linuxgsm:
 
 notes:
   - Needs Docker with the Compose plugin, about 3 GB of images and 2 GB of memory.
-  - "Two addresses: the app (port http) and its API (port api). Behind an HTTPS proxy, point https://chat.example.com at http and https://db.chat.example.com at api, then set url and api_url to those. Both listen on 127.0.0.1 only; --expose http --expose api opens them to your network."
+  - "Two addresses: the app (port http) and its API (port api). Behind an HTTPS proxy, point https://chat.example.com at http and https://db.chat.example.com at api, then set url and api_url to those. Without a domain, both are opened to the network and url and api_url are filled in with this machine's address."
   - The admin account is created on every start if it's missing; `anyserve config <name> --show-secrets` shows its password. Changing admin_password later doesn't change an existing account's password.
   - Never change jwt_seed or postgres_password after the first start.
   - Without a mail server, new addresses count as confirmed and invitations are links you share yourself. Voice (LiveKit), bots, push notifications and the Discord bridge aren't set up.

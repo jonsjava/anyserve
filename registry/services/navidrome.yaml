@@ -3,7 +3,7 @@ id: navidrome
 name: Navidrome
 description: A music server and streamer for your own collection, compatible with Subsonic apps.
 homepage: https://www.navidrome.org
-version: "0.64.2-1"
+version: "0.64.2-2"
 kind: stack
 
 settings:
@@ -53,4 +53,3 @@ linuxgsm:
 notes:
   - The first account you create becomes the admin.
   - Backups cover Navidrome's database (playlists, ratings, play counts), not your music folder.
-  - Phones and other computers need `--expose http` on your LAN, or an HTTPS proxy.

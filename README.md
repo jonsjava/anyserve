@@ -97,9 +97,13 @@ won't install until you add `--set accept_eula=true` yourself.
 ### Self-hosted apps
 
 These run as container stacks (Docker Compose) under your own user, with every
-capability dropped. Their web pages listen on this machine only
-(`127.0.0.1`); put them behind your reverse proxy, or open one to your network
-with `--expose http` at install or `anyserve config <name> --expose http` later.
+capability dropped. Their web pages are opened to the network, and settings that
+hold the app's own address (such as `url`) are filled in from this machine's
+address and port, so an app works from other computers as soon as it's
+installed; the install prints where to open it. With a domain, the page goes
+through the HTTPS proxy instead (see below). `--private` at install keeps the
+pages on this machine only (`127.0.0.1`), and `anyserve config <name>
+--expose http` or `--unexpose http` changes it later.
 
 | App | What it is | Default port |
 |---|---|---|
@@ -140,7 +144,7 @@ Each service's quirks are noted in its definition and shown by `anyserve info`.
 | `anyserve` | Guided install: pick a service, target, settings and ports |
 | `available [search]` | List installable services |
 | `info <service>` | Show a service's settings, ports, console and notes |
-| `install <service>` | Install a new instance (`--name`, `--set key=value`, `--port name=N`, `--expose port`, `--target`, `--dir`, `--start`) |
+| `install <service>` | Install a new instance (`--name`, `--set key=value`, `--port name=N`, `--private`, `--expose port`, `--target`, `--dir`, `--start`) |
 | `list` | List instances and their state |
 | `status <name>` | Details for one instance, with uptime, CPU, memory, disk and network while it runs |
 | `start` / `stop` / `restart <name>` | Control an instance. `restart --warn 5m` warns players first |
@@ -205,7 +209,8 @@ anyserve config gotify --domain push.example.com     # later, or --no-domain
 anyserve https use caddy --email you@example.com     # optional: Let's Encrypt notices
 ```
 
-Apps keep listening on 127.0.0.1. A domain puts the app behind an HTTPS reverse
+The port the domain serves listens on 127.0.0.1, and the app's address settings
+use `https://` and the domain. A domain puts the app behind an HTTPS reverse
 proxy with a free Let's Encrypt certificate. By default that's Caddy, which
 Anyserve runs for you: one container, pinned by digest, running as your user with
 nothing but permission to use ports 80 and 443, and only while some app has a

@@ -37,9 +37,13 @@ type Instance struct {
 	// Expose lists private ports the user chose to open to the network
 	// (for a stack's web UI on a home LAN, say). Private ports otherwise
 	// listen on 127.0.0.1 only.
-	Expose    []string  `json:"expose,omitempty"`
-	Installed time.Time `json:"installed"`
-	Updated   time.Time `json:"updated"`
+	Expose []string `json:"expose,omitempty"`
+	// AutoAddress lists address settings Anyserve filled in (from this
+	// machine's address, the ports and the domain) rather than the user,
+	// so they follow later port and domain changes.
+	AutoAddress []string  `json:"auto_address,omitempty"`
+	Installed   time.Time `json:"installed"`
+	Updated     time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
 	// Domain is served over HTTPS by the proxy (`anyserve https`),

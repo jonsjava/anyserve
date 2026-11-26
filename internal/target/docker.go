@@ -234,6 +234,7 @@ func (t *docker) Logs(in *instance.Instance, lines int, follow bool, out io.Writ
 // composeService is the subset of the Compose file format Anyserve writes.
 type composeService struct {
 	Image       string                       `yaml:"image"`
+	Entrypoint  []string                     `yaml:"entrypoint,omitempty"`
 	Command     []string                     `yaml:"command,omitempty"`
 	Environment map[string]string            `yaml:"environment,omitempty"`
 	User        string                       `yaml:"user"`
@@ -297,6 +298,7 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 	for _, s := range services {
 		cs := composeService{
 			Image:       s.Image,
+			Entrypoint:  s.Entrypoint,
 			Command:     s.Command,
 			Environment: s.Env,
 			// Containers run as the user who owns the instance, so their

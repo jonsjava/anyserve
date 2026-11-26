@@ -3,15 +3,16 @@ id: ntfy
 name: ntfy
 description: A simple push notification server. Send alerts to your phone or desktop with a plain HTTP request.
 homepage: https://ntfy.sh
-version: "2.38.1-1"
+version: "2.38.1-2"
 kind: stack
 
 settings:
   - key: base_url
     prompt: Address people and apps will use (e.g. https://ntfy.example.com)
-    description: Used for attachment links and the web app. Leave the default for testing on this machine.
+    description: Used for attachment links and the web app. Filled in from this machine's address unless you give one.
     type: string
     default: http://localhost:2586
+    address: { port: http }
   - key: default_access
     prompt: Access for people without an account
     type: choice
@@ -73,4 +74,3 @@ linuxgsm:
 notes:
   - "Send a test message: curl -d 'Hello' http://localhost:2586/test, then subscribe to the topic test in the app."
   - "Add users from the console: anyserve console <name>, then ntfy user add --role=admin yourname."
-  - Phones need to reach the server, so add `--expose http` for your LAN or put an HTTPS proxy in front of it.

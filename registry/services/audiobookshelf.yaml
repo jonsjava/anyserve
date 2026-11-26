@@ -3,7 +3,7 @@ id: audiobookshelf
 name: Audiobookshelf
 description: An audiobook and podcast server with progress sync, web player and mobile apps.
 homepage: https://www.audiobookshelf.org
-version: "2.38.0-1"
+version: "2.38.0-2"
 kind: stack
 
 settings:
@@ -50,4 +50,3 @@ linuxgsm:
 notes:
   - Create the root account on your first visit, then add a library pointing at /audiobooks (and /podcasts).
   - Backups cover the database, covers and progress, not your audiobook files.
-  - Phones need `--expose http` on your LAN, or an HTTPS proxy.

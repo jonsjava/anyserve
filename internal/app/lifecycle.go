@@ -36,8 +36,12 @@ type InstallRequest struct {
 	Start     bool
 	// SteamOutput shows SteamCMD's full output.
 	SteamOutput bool
-	// Expose opens these private ports to the network (stacks only).
+	// Expose opens these private ports to the network (stacks only). Nil
+	// opens them all, except one the HTTPS proxy serves, unless Private.
 	Expose []string
+	// Private keeps every private port on this machine only, apart from
+	// any listed in Expose.
+	Private bool
 	// Isolate runs a native server in a container that sees only its own
 	// folder.
 	Isolate bool
@@ -57,6 +61,8 @@ type Plan struct {
 	Warnings []string
 	// Moved says which default ports were taken and what they moved to.
 	Moved []string
+	// AutoAddress lists address settings filled in for the user.
+	AutoAddress []string
 }
 
 // PlanInstall validates a request without changing anything.
@@ -90,6 +96,17 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 	if err := t.SupportsService(e.Def); err != nil {
 		return nil, err
 	}
+	// An address setting left empty is filled in once the ports are known.
+	if len(req.Settings) > 0 {
+		given := map[string]string{}
+		for k, v := range req.Settings {
+			if s, ok := e.Def.Setting(k); ok && s.Address != nil && strings.TrimSpace(v) == "" {
+				continue
+			}
+			given[k] = v
+		}
+		req.Settings = given
+	}
 	settings, err := e.Def.ResolveSettings(req.Settings)
 	if err != nil {
 		return nil, err
@@ -110,10 +127,16 @@ func (a *App) PlanInstall(req InstallRequest) (*Plan, error) {
 			return nil, fmt.Errorf("--domain: %w", err)
 		}
 	}
+	if req.Expose == nil && !req.Private {
+		req.Expose = defaultExpose(e.Def, req.Domain, req.DomainPort)
+		p.Req.Expose = req.Expose
+	}
 	if err := checkExpose(e.Def, req.Expose); err != nil {
 		return nil, err
 	}
 	p.Moved = a.pickFreePorts(req.Name, e.Def, req.Ports, ports)
+	// Addresses come after the ports are final.
+	p.AutoAddress = fillAddresses(e.Def, req.Settings, settings, ports, req.Domain, req.DomainPort)
 	conflicts, warnings := a.checkPorts(req.Name, e.Def, ports)
 	if len(conflicts) > 0 {
 		return nil, errors.New(strings.Join(conflicts, "\n") + "\nChoose other ports with --port name=number")
@@ -207,6 +230,7 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		Settings:          map[string]string{},
 		Ports:             p.Ports,
 		Expose:            p.Req.Expose,
+		AutoAddress:       p.AutoAddress,
 		Domain:            p.Req.Domain,
 		DomainPort:        p.Req.DomainPort,
 		Installed:         now,
@@ -994,6 +1018,13 @@ func (a *App) Reconfigure(name string, c Changes) error {
 			in.Isolation = ""
 		}
 	}
+	addressesChanged := false
+	if domainChanged || len(ports) > 0 || len(settings) > 0 {
+		for _, k := range refreshAddresses(in, d, settings) {
+			a.Log("Set %s to %s", k, in.Settings[k])
+			addressesChanged = true
+		}
+	}
 	if err := a.Store.Save(in, d); err != nil {
 		return err
 	}
@@ -1010,7 +1041,7 @@ func (a *App) Reconfigure(name string, c Changes) error {
 		if err := a.SyncDomains(); err != nil {
 			return fmt.Errorf("saved, but the HTTPS proxy wasn't updated: %w", err)
 		}
-		if domainChanged && len(settings) == 0 && len(ports) == 0 && c.Isolate == nil && len(c.Expose) == 0 && len(c.Unexpose) == 0 {
+		if domainChanged && !addressesChanged && len(settings) == 0 && len(ports) == 0 && c.Isolate == nil && len(c.Expose) == 0 && len(c.Unexpose) == 0 {
 			return nil // nothing about the app itself changed
 		}
 	}

@@ -3,7 +3,7 @@ id: forgejo
 name: Forgejo
 description: A community-run Git forge (a Gitea fork) with pull requests, issues, packages and Actions.
 homepage: https://forgejo.org
-version: "17.0.2-1"
+version: "17.0.2-2"
 kind: stack
 
 settings:
@@ -11,10 +11,12 @@ settings:
     prompt: Host name people will use (e.g. git.example.com)
     type: string
     default: localhost
+    address: { port: http, form: host }
   - key: root_url
     prompt: Full web address (e.g. https://git.example.com/)
     type: string
     default: http://localhost:3003/
+    address: { port: http, path: / }
   - key: disable_registration
     prompt: Turn off sign-ups? (the first account you create becomes the admin either way)
     type: bool
@@ -82,4 +84,3 @@ linuxgsm:
 
 notes:
   - The first account you register becomes the admin. Set disable_registration afterwards if it's just for you.
-  - To reach it from other computers, add `--expose http` (and `--expose ssh` for Git over SSH), or put an HTTPS proxy in front of it.

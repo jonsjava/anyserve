@@ -3,7 +3,7 @@ id: memos
 name: Memos
 description: A lightweight, self-hosted note-taking app for quick thoughts, in a timeline you can search and share.
 homepage: https://usememos.com
-version: "26.11.1-1"
+version: "26.11.1-2"
 kind: stack
 
 ports:
@@ -36,4 +36,3 @@ linuxgsm:
 
 notes:
   - The first account you create becomes the admin.
-  - To reach it from other computers on your network, add `--expose http`.

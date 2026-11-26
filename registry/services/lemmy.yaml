@@ -3,7 +3,7 @@ id: lemmy
 name: Lemmy
 description: A federated link aggregator and forum (like Reddit, on the fediverse), as a stack of containers.
 homepage: https://join-lemmy.org
-version: "0.19.21-4"
+version: "0.19.21-5"
 kind: stack
 
 settings:
@@ -12,6 +12,7 @@ settings:
     description: Federation uses this name, and it can't be changed after the first start.
     type: string
     default: localhost
+    address: { port: http, form: host, once: true }
   - key: https
     prompt: Will it be served over HTTPS by a proxy in front of it?
     description: Say no only for testing on this machine. Federation needs HTTPS.
@@ -207,5 +208,5 @@ linuxgsm:
 
 notes:
   - Needs Docker with the Compose plugin.
-  - The site listens on 127.0.0.1 only. Put an HTTPS reverse proxy (Caddy, nginx, a tunnel) in front of it for your domain, or open it to your network with `--expose http`.
+  - "Federation needs a real domain behind HTTPS: install with `--domain` (Anyserve's HTTPS proxy), or set hostname and https for a proxy of your own."
   - The admin account is created on the first start. `anyserve config <name> --show-secrets` shows its generated password.

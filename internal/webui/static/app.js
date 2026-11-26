@@ -82,6 +82,15 @@
     const rows = [["Service", i.service + " (" + i.registry + "/" + i.service_id + ")"], ["Definition", i.definition + (i.upgrade ? " → " + i.upgrade + " available" : "")],
       ["Auto-update", i.auto_update], ["Installed", when(i.installed)], ["Updated", when(i.updated)], ["Console", i.console || "none"]];
     for (const [k, v] of rows) ov.append(el("tr", {}, el("td", { textContent: k }), el("td", { textContent: v })));
+    const urls = (i.ports || []).filter((p) => /^https?:/.test(p.url || ""));
+    if (urls.length) {
+      const cell = el("td", {});
+      urls.forEach((p, n) => {
+        if (n) cell.append(el("br"));
+        cell.append(el("a", { href: p.url, target: "_blank", rel: "noopener", textContent: p.url }), urls.length > 1 ? " (" + p.name + ")" : "");
+      });
+      ov.prepend(el("tr", {}, el("td", { textContent: "Open at" }), cell));
+    }
     const pt = $("#d-ports");
     pt.replaceChildren();
     for (const p of i.ports || []) {
@@ -650,7 +659,8 @@
     sb.replaceChildren();
     for (const st of def.settings || []) {
       let input;
-      const dflt = st.default === undefined || st.default === null ? "" : String(st.default);
+      // An address is filled in from the machine's address and port.
+      const dflt = st.address || st.default === undefined || st.default === null ? "" : String(st.default);
       if (st.type === "bool") {
         input = el("input", { type: "checkbox", checked: dflt === "true" && !st.must_accept });
         const lab = el("label", { className: "check" }, input, " " + st.prompt);
@@ -663,9 +673,9 @@
         input = el("select", {}, ...(st.choices || []).map((ch) => el("option", { value: ch.value, textContent: ch.label || ch.value })));
         input.value = dflt;
       } else {
-        input = el("input", { type: st.type === "int" ? "number" : st.secret ? "password" : "text", value: dflt, placeholder: st.generate ? "leave empty to generate one" : st.optional ? "optional" : "" });
+        input = el("input", { type: st.type === "int" ? "number" : st.secret ? "password" : "text", value: dflt, placeholder: st.generate ? "leave empty to generate one" : st.address ? "leave empty to use this machine's address" : st.optional ? "optional" : "" });
         if (st.type === "int") { if (st.min != null) input.min = st.min; if (st.max != null) input.max = st.max; }
-        if (!st.optional && !st.generate && st.type !== "folder") input.required = dflt === "";
+        if (!st.optional && !st.generate && !st.address && st.type !== "folder") input.required = dflt === "";
         if (st.secret) input.autocomplete = "new-password";
       }
       input.dataset.key = st.key;
@@ -679,7 +689,7 @@
       const cell = el("div", { className: "port" }, el("label", {}, p.name + " (" + p.protocol + (p.public ? ", public" : "") + ")", input));
       // A stack's private ports listen on this machine only unless opened.
       if (def.kind === "stack" && !p.public) {
-        const open = el("input", { type: "checkbox" });
+        const open = el("input", { type: "checkbox", checked: true });
         open.dataset.expose = p.name;
         cell.append(el("label", { className: "check" }, open, "Open to your network (otherwise only this machine can reach it)"));
       }
@@ -693,7 +703,7 @@
     $("#n-settings").querySelectorAll("[data-key]").forEach((i) => {
       const v = i.dataset.type === "bool" ? String(i.checked) : i.value;
       const st = (def.settings || []).find((s) => s.key === i.dataset.key);
-      const dflt = st && st.default != null ? String(st.default) : "";
+      const dflt = st && st.default != null && !st.address ? String(st.default) : "";
       if (v !== dflt || i.dataset.type === "bool") settings[i.dataset.key] = v;
     });
     $("#n-ports").querySelectorAll("[data-port]").forEach((i) => {

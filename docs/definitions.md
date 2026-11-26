@@ -229,6 +229,24 @@ token. Values can't contain line breaks.
 Generated values are saved with the instance, so they stay the same across
 updates. Users see them with `anyserve config <name> --show-secrets`.
 
+A `string` setting that holds the app's own address (a base URL or host name)
+takes `address`, naming the port it points at. If the user leaves it empty,
+Anyserve fills it in: `https://<domain>` when the HTTPS proxy serves that port,
+else `http://<this machine's address>:<port>`. It follows later port and domain
+changes until the user sets it themselves. Keep a `default` too, for older
+versions of Anyserve.
+
+```yaml
+  - key: root_url
+    prompt: Full web address (e.g. https://git.example.com/)
+    type: string
+    default: http://localhost:3000/
+    address: { port: http, path: / }   # form: host gives the name alone
+```
+
+`once: true` fills it at install only, for apps that can't change their address
+after the first start.
+
 ## ports
 
 ```yaml
@@ -241,9 +259,11 @@ ports:
 ```
 
 Users can change any port with `--port name=number`. Admin ports such as
-RCON should be `public: false`. For stacks, non-public ports bind to
-127.0.0.1 only, until the user opens one with `--expose` (for a web UI on a
-home network, say).
+RCON should be `public: false`. For stacks, `public` means "forward it on
+the router", and non-public ports are the app's own pages and APIs: they're
+opened to the network at install (all but one the HTTPS proxy serves), unless
+the user installs with `--private`. Don't give a stack a port that must never
+leave the machine; containers in a stack reach each other without ports.
 
 ## files
 
@@ -456,6 +476,7 @@ backup:
 | `name` | The container's name, and its host name on the stack's private network. |
 | `image` | Must be pinned by digest: `name:tag@sha256:...`. |
 | `command` | Replaces the image's command. Templates allowed. |
+| `entrypoint` | Replaces the image's entrypoint, for images whose entrypoint already names the program. Templates allowed. In a shell command, write `$$` for a literal `$`: Compose substitutes a single one itself. |
 | `env` | Environment variables. Templates allowed. |
 | `volumes` | Mounts from the server folder (`path`), or a folder the user chose in a `folder` setting (`setting`). A path listed in `files` is mounted as a file; any other path is a folder, created before the stack starts. An optional folder setting left empty skips its mount. Backups only cover the server folder, not chosen folders. |
 | `ports` | Publishes a port from `ports` (by name) from the container's `target` port. Each port is published once. Use `same_port: true` instead of `target` when the server announces its own port to clients (WebRTC, for one): the container then listens on the same number as the host, which the server gets from `{{.Ports.<name>}}`. |
@@ -473,9 +494,10 @@ definitions can't change them:
 - there's no way to ask for privileged mode, the host network, host paths or
   the Docker socket;
 - containers restart unless stopped, and logs are capped at 30 MB each;
-- ports that aren't `public` listen on 127.0.0.1 only, unless the user opens
-  them with `anyserve install --expose <port>` or
-  `anyserve config <name> --expose <port>`.
+- ports that aren't `public` are opened to the network at install, except one
+  the HTTPS proxy serves, which listens on 127.0.0.1; `--private` keeps them
+  all on 127.0.0.1, and `anyserve config <name> --expose/--unexpose <port>`
+  changes it later.
 
 A folder from a `folder` setting is mounted like this:
 
