@@ -1060,7 +1060,7 @@ func (a *App) PortReport(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return FormatPortsShared(d, ports, a.SharedPorts(d, in.Domain, in.DomainPort)), nil
+	return FormatPortsShared(d, ports, a.SharedPorts(d, in.Domain, in.DomainPort), in.Expose), nil
 }
 
 // SharedPorts maps each of an instance's ports that players reach through
@@ -1085,22 +1085,30 @@ func (a *App) SharedPorts(d *spec.Definition, domain, domainPort string) map[str
 
 // FormatPorts explains which ports to forward and which to keep private.
 func FormatPorts(d *spec.Definition, ports map[string]int) string {
-	return FormatPortsShared(d, ports, nil)
+	return FormatPortsShared(d, ports, nil, nil)
 }
 
 // FormatPortsShared is FormatPorts for an instance whose ports in shared
-// are reached through a shared listener on the given port.
-func FormatPortsShared(d *spec.Definition, ports map[string]int, shared map[string]int) string {
+// are reached through a shared listener on the given port, and whose
+// private ports in exposed are open to the network.
+func FormatPortsShared(d *spec.Definition, ports map[string]int, shared map[string]int, exposed []string) string {
 	var b strings.Builder
+	open := map[string]bool{}
+	for _, n := range exposed {
+		open[n] = true
+	}
 	var public []string
 	seen := map[string]bool{}
 	for _, p := range d.Ports {
 		vis := "keep private"
+		if open[p.Name] {
+			vis = "open to your network"
+		}
 		if p.Public {
-			vis = "forward for players"
+			vis = "forward on router"
 			n := ports[p.Name]
 			if s, ok := shared[p.Name]; ok {
-				vis = fmt.Sprintf("players use %d", s)
+				vis = fmt.Sprintf("reached on %d", s)
 				n = s
 			}
 			for _, proto := range protos(p.Protocol) {
@@ -1113,7 +1121,7 @@ func FormatPortsShared(d *spec.Definition, ports map[string]int, shared map[stri
 		fmt.Fprintf(&b, "  %-6s %5d/%-4s %-20s %s\n", p.Name, ports[p.Name], p.Protocol, vis, p.Description)
 	}
 	if len(public) > 0 {
-		fmt.Fprintf(&b, "\nTo let players connect, forward %s on your router to this machine.\n", strings.Join(public, ", "))
+		fmt.Fprintf(&b, "\nSo people can connect from the internet, forward %s on your router to this machine.\n", strings.Join(public, ", "))
 		fmt.Fprintf(&b, "If this machine runs a firewall, allow them too. For example:\n")
 		var ufw, fwd []string
 		for _, p := range public {
