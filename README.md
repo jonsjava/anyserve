@@ -103,7 +103,10 @@ address and port, so an app works from other computers as soon as it's
 installed; the install prints where to open it. With a domain, the page goes
 through the HTTPS proxy instead (see below). `--private` at install keeps the
 pages on this machine only (`127.0.0.1`), and `anyserve config <name>
---expose http` or `--unexpose http` changes it later.
+--expose http` or `--unexpose http` changes it later. Apps installed by older
+versions get the same treatment once, when Anyserve's service next starts: ports
+nobody chose to open are opened, and address settings still at their old
+`localhost` default are filled in (a running app restarts to pick that up).
 
 | App | What it is | Default port |
 |---|---|---|

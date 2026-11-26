@@ -231,6 +231,7 @@ func (a *App) Install(ctx context.Context, p *Plan) (*instance.Instance, error) 
 		Ports:             p.Ports,
 		Expose:            p.Req.Expose,
 		AutoAddress:       p.AutoAddress,
+		Migrations:        []string{MigrationReachable},
 		Domain:            p.Req.Domain,
 		DomainPort:        p.Req.DomainPort,
 		Installed:         now,

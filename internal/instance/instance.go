@@ -41,9 +41,12 @@ type Instance struct {
 	// AutoAddress lists address settings Anyserve filled in (from this
 	// machine's address, the ports and the domain) rather than the user,
 	// so they follow later port and domain changes.
-	AutoAddress []string  `json:"auto_address,omitempty"`
-	Installed   time.Time `json:"installed"`
-	Updated     time.Time `json:"updated"`
+	AutoAddress []string `json:"auto_address,omitempty"`
+	// Migrations lists one-time changes already applied to this instance
+	// (or not needed, for one installed after them).
+	Migrations []string  `json:"migrations,omitempty"`
+	Installed  time.Time `json:"installed"`
+	Updated    time.Time `json:"updated"`
 	// BackupKeep is how many backups to keep. 0 means the default.
 	BackupKeep int `json:"backup_keep,omitempty"`
 	// Domain is served over HTTPS by the proxy (`anyserve https`),
@@ -235,6 +238,16 @@ func writeFile(p string, data []byte, mode os.FileMode) error {
 }
 
 // Exposed reports whether the user opened a private port to the network.
+// Migrated reports whether a one-time change has been applied.
+func (in *Instance) Migrated(name string) bool {
+	for _, m := range in.Migrations {
+		if m == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (in *Instance) Exposed(port string) bool {
 	for _, p := range in.Expose {
 		if p == port {
