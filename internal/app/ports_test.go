@@ -37,7 +37,7 @@ func TestFormatPortsExposed(t *testing.T) {
 		t.Errorf("firewall hint:\n%s", out)
 	}
 	out = FormatPortsShared(d, ports, nil, []string{"http"})
-	if !strings.Contains(line(out, "http"), "open to your network") {
+	if !strings.Contains(line(out, "http"), "open to network") {
 		t.Errorf("exposed port: %q", line(out, "http"))
 	}
 }
