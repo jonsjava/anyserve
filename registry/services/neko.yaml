@@ -1,0 +1,164 @@
+schema: 1
+id: neko
+name: n.eko
+description: A shared Firefox in a container that friends use together from their own browsers, over WebRTC. Watch parties, browsing together, or a throwaway browser.
+homepage: https://neko.m1k1o.net
+version: "3.2.0-1"
+kind: stack
+
+settings:
+  - key: user_password
+    prompt: Password for viewers (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: admin_password
+    prompt: Password for admins, who can kick users and lock the room (leave empty to generate one)
+    type: string
+    secret: true
+    generate: true
+  - key: screen
+    prompt: Screen size and frame rate
+    type: choice
+    default: "1280x720@30"
+    choices:
+      - { value: "1280x720@30", label: "1280x720, 30 fps" }
+      - { value: "1600x900@30", label: "1600x900, 30 fps" }
+      - { value: "1920x1080@30", label: "1920x1080, 30 fps (needs more CPU and bandwidth)" }
+      - { value: "1280x720@60", label: "1280x720, 60 fps" }
+  - key: public_address
+    prompt: Address viewers reach this machine at, if not its public IP (e.g. a LAN IP); leave empty to look it up
+    type: string
+    optional: true
+
+ports:
+  - name: http
+    port: 8085
+    protocol: tcp
+    public: false
+    description: The web page viewers open.
+  - name: webrtc
+    port: 52000
+    protocol: both
+    public: true
+    description: The video, sound and controls (WebRTC), UDP with TCP as a fallback. Viewers' browsers connect to it directly.
+
+files:
+  # n.eko's own supervisor config starts as root and switches to its user;
+  # this one runs everything as the container's user (Anyserve never runs
+  # containers as root) and logs to the container's output.
+  - path: supervisord.conf
+    overwrite: true
+    template: |
+      ; Written by Anyserve. Changes are overwritten.
+      [supervisord]
+      nodaemon=true
+      pidfile=/tmp/supervisord.pid
+      logfile=/dev/null
+      logfile_maxbytes=0
+      loglevel=warn
+
+      [program:x-server]
+      command=/usr/bin/X %(ENV_DISPLAY)s -config /etc/neko/xorg.conf -noreset -nolisten tcp
+      autorestart=true
+      priority=300
+      stdout_logfile=/dev/fd/1
+      stdout_logfile_maxbytes=0
+      redirect_stderr=true
+
+      [program:pulseaudio]
+      command=/usr/bin/pulseaudio --log-level=error --disallow-module-loading --disallow-exit --exit-idle-time=-1
+      autorestart=true
+      priority=300
+      stdout_logfile=/dev/fd/1
+      stdout_logfile_maxbytes=0
+      redirect_stderr=true
+
+      [program:openbox]
+      command=/usr/bin/openbox --config-file /etc/neko/openbox.xml
+      autorestart=true
+      startretries=10
+      priority=400
+      stdout_logfile=/dev/fd/1
+      stdout_logfile_maxbytes=0
+      redirect_stderr=true
+
+      [program:firefox]
+      command=/usr/bin/firefox --no-remote -P default --display=%(ENV_DISPLAY)s -setDefaultBrowser -width 1280 -height 720
+      stopsignal=INT
+      autorestart=true
+      priority=800
+      stdout_logfile=/dev/fd/1
+      stdout_logfile_maxbytes=0
+      redirect_stderr=true
+
+      [program:neko]
+      command=/usr/bin/neko serve --server.static "/var/www"
+      stopsignal=INT
+      stopwaitsecs=3
+      autorestart=true
+      priority=800
+      stdout_logfile=/dev/fd/1
+      stdout_logfile_maxbytes=0
+      redirect_stderr=true
+
+      [unix_http_server]
+      file=/tmp/supervisor.sock
+      chmod=0700
+
+      [supervisorctl]
+      serverurl=unix:///tmp/supervisor.sock
+
+      [rpcinterface:supervisor]
+      supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+  # The browser's home (profile, bookmarks, history) lives in the instance,
+  # so it survives restarts and updates and is backed up.
+  - path: home/.mozilla/firefox/profiles.ini
+    template: |
+      [General]
+      StartWithLastProfile=1
+
+      [Profile0]
+      Name=default
+      IsRelative=1
+      Path=profile.default
+      Default=1
+  - path: home/.mozilla/firefox/profile.default/.anyserve
+    template: "Firefox's profile folder, kept by Anyserve.\n"
+
+stack:
+  services:
+    - name: neko
+      image: ghcr.io/m1k1o/neko/firefox:3.2.0@sha256:415730ef9e3c35d850fdbbb95aa150cb9eda0b9c260c61d1974fb3af39cb71c3
+      shm_mb: 2048
+      env:
+        HOME: /home/neko
+        XDG_RUNTIME_DIR: /home/neko
+        NEKO_DESKTOP_SCREEN: "{{.Settings.screen}}"
+        NEKO_MEMBER_PROVIDER: multiuser
+        NEKO_MEMBER_MULTIUSER_USER_PASSWORD: "{{.Settings.user_password}}"
+        NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD: "{{.Settings.admin_password}}"
+        NEKO_WEBRTC_UDPMUX: "{{.Ports.webrtc}}"
+        NEKO_WEBRTC_TCPMUX: "{{.Ports.webrtc}}"
+        NEKO_WEBRTC_NAT1TO1: "{{.Settings.public_address}}"
+      volumes:
+        - { path: supervisord.conf, target: /etc/neko/supervisord.conf, read_only: true }
+        - { path: home, target: /home/neko }
+      ports:
+        - { port: http, target: 8080 }
+        - { port: webrtc, same_port: true }
+      health:
+        command: [curl, -fsS, -o, /dev/null, "http://127.0.0.1:8080/health"]
+
+backup:
+  paths: [home]
+  stop_first: true
+
+linuxgsm:
+  status: missing
+  notes: Not a game server, so it doesn't belong in LinuxGSM.
+
+notes:
+  - Viewers open the http port in their browser, so add `--expose http` for your network, or give it a domain behind your HTTPS proxy. The webrtc port (UDP and TCP) must be reachable by viewers too; open it in your firewall.
+  - Viewers log in with any display name and the viewer password; admins with the admin password. See them with `anyserve config <name> --show-secrets`.
+  - It looks up this machine's public IP for viewers to connect to. For viewers on your LAN only, set public_address to this machine's LAN IP.
