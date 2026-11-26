@@ -104,3 +104,68 @@ func TestRefreshAddresses(t *testing.T) {
 		t.Errorf("once setting changed: %v %v", changed, li.Settings)
 	}
 }
+
+// oldDef is a definition as it was before address hints.
+func oldDef(t *testing.T, id string) *spec.Definition {
+	d := loadDef(t, id)
+	old := *d
+	old.Settings = append([]spec.Setting(nil), d.Settings...)
+	for i := range old.Settings {
+		old.Settings[i].Address = nil
+	}
+	return &old
+}
+
+func TestMigrateReachable(t *testing.T) {
+	prev := hostAddress
+	hostAddress = func() string { return "203.0.113.7" }
+	defer func() { hostAddress = prev }()
+
+	hints := loadDef(t, "harmony")
+	d := oldDef(t, "harmony")
+	in := &instance.Instance{
+		Settings: map[string]string{"url": "http://localhost:8090", "api_url": "http://localhost:8091", "instance_name": "Harmony"},
+		Ports:    map[string]int{"http": 8090, "api": 8091},
+	}
+	changes := migrateReachable(in, d, hints)
+	if len(changes) != 3 || !reflect.DeepEqual(in.Expose, []string{"http", "api"}) ||
+		in.Settings["url"] != "http://203.0.113.7:8090" || in.Settings["api_url"] != "http://203.0.113.7:8091" ||
+		!reflect.DeepEqual(in.AutoAddress, []string{"url", "api_url"}) || !in.Migrated(MigrationReachable) {
+		t.Errorf("old Harmony: %v\n%+v", changes, in)
+	}
+	// Later refreshes keep the keys while the instance's own definition
+	// lacks the hints.
+	refreshAddresses(in, d, nil)
+	if !reflect.DeepEqual(in.AutoAddress, []string{"url", "api_url"}) {
+		t.Errorf("keys dropped: %v", in.AutoAddress)
+	}
+
+	// What the user chose stays: their own url, and ports they opened.
+	in = &instance.Instance{
+		Settings: map[string]string{"url": "https://chat.example.com", "api_url": "http://localhost:8091"},
+		Ports:    map[string]int{"http": 8090, "api": 8091},
+		Expose:   []string{"api"},
+	}
+	migrateReachable(in, d, hints)
+	if in.Settings["url"] != "https://chat.example.com" || in.Settings["api_url"] != "http://203.0.113.7:8091" || !reflect.DeepEqual(in.Expose, []string{"api"}) {
+		t.Errorf("user's choices: %+v", in)
+	}
+
+	// With a domain, the proxied port gets https and stays local.
+	in = &instance.Instance{
+		Settings: map[string]string{"url": "http://localhost:8090", "api_url": "http://localhost:8091"},
+		Ports:    map[string]int{"http": 8090, "api": 8091},
+		Domain:   "chat.example.com",
+	}
+	migrateReachable(in, d, hints)
+	if in.Settings["url"] != "https://chat.example.com" || !reflect.DeepEqual(in.Expose, []string{"api"}) {
+		t.Errorf("with a domain: %+v", in)
+	}
+
+	// once: an app that can't change its name after the first start keeps it.
+	l := &instance.Instance{Settings: map[string]string{"hostname": "localhost"}, Ports: map[string]int{"http": 10633}}
+	migrateReachable(l, oldDef(t, "lemmy"), loadDef(t, "lemmy"))
+	if l.Settings["hostname"] != "localhost" || len(l.AutoAddress) != 0 {
+		t.Errorf("lemmy hostname changed: %+v", l)
+	}
+}

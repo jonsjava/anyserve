@@ -87,11 +87,13 @@ func refreshAddresses(in *instance.Instance, d *spec.Definition, given map[strin
 	var changed, keep []string
 	for _, k := range in.AutoAddress {
 		s, ok := d.Setting(k)
-		if _, set := given[k]; set || !ok || s.Address == nil {
+		if _, set := given[k]; set || !ok {
 			continue
 		}
 		keep = append(keep, k)
-		if s.Address.Once {
+		// An instance still on a definition from before address hints
+		// (filled in by MigrateReachable) keeps the key for later.
+		if s.Address == nil || s.Address.Once {
 			continue
 		}
 		if v := addressValue(d, s.Address, in.Ports, in.Domain, in.DomainPort); v != in.Settings[k] {
@@ -142,4 +144,116 @@ func Addresses(in *instance.Instance, d *spec.Definition, ports map[string]int) 
 		}
 	}
 	return out
+}
+
+// MigrationReachable is the one-time change that brings apps installed
+// before Anyserve opened them to the network up to date.
+const MigrationReachable = "reachable"
+
+// migrateReachable applies MigrationReachable to one instance in memory:
+// it opens the app's private ports (if the user never chose any), and
+// fills in address settings still empty or at an old localhost default.
+// hints is the newest definition, whose address hints the instance's own
+// (older) definition may lack. It reports what changed.
+func migrateReachable(in *instance.Instance, d, hints *spec.Definition) []string {
+	var changes []string
+	if len(in.Expose) == 0 {
+		if open := defaultExpose(d, in.Domain, in.DomainPort); len(open) > 0 {
+			in.Expose = open
+			changes = append(changes, "opened "+strings.Join(open, ", ")+" to the network")
+		}
+	}
+	ports, err := d.ResolvePorts(in.Ports)
+	if err != nil {
+		ports = in.Ports
+	}
+	auto := map[string]bool{}
+	for _, k := range in.AutoAddress {
+		auto[k] = true
+	}
+	for _, h := range hints.Settings {
+		if h.Address == nil || h.Address.Once || auto[h.Key] {
+			continue
+		}
+		s, ok := d.Setting(h.Key)
+		if !ok || s.Type != "string" {
+			continue
+		}
+		if _, ok := d.Port(h.Address.Port); !ok {
+			continue
+		}
+		// Only a value nobody chose: empty, or a default either version of
+		// the definition shipped.
+		v := in.Settings[h.Key]
+		if v != "" && v != s.DefaultString() && v != h.DefaultString() {
+			continue
+		}
+		nv := addressValue(d, h.Address, ports, in.Domain, in.DomainPort)
+		in.AutoAddress = append(in.AutoAddress, h.Key)
+		if nv != v {
+			if in.Settings == nil {
+				in.Settings = map[string]string{}
+			}
+			in.Settings[h.Key] = nv
+			changes = append(changes, "set "+h.Key+" to "+nv)
+		}
+	}
+	in.Migrations = append(in.Migrations, MigrationReachable)
+	return changes
+}
+
+// MigrateReachable applies MigrationReachable to every app that hasn't
+// had it, restarting the running ones so the change takes effect.
+// Anyserve's service runs it when it starts.
+func (a *App) MigrateReachable() {
+	list, _, err := a.Store.List()
+	if err != nil {
+		a.Log("Couldn't check apps for the network change: %v", err)
+		return
+	}
+	for _, in := range list {
+		if in.Migrated(MigrationReachable) {
+			continue
+		}
+		if err := a.migrateOne(in.Name); err != nil {
+			a.Log("Couldn't open %s to the network: %v", in.Name, err)
+		}
+	}
+}
+
+func (a *App) migrateOne(name string) error {
+	in, d, t, err := a.load(name)
+	if err != nil {
+		return err
+	}
+	if !d.IsStack() {
+		in.Migrations = append(in.Migrations, MigrationReachable)
+		return a.Store.Save(in, d)
+	}
+	hints := d
+	if e, err := a.Find(in.Registry + "/" + in.Service); err == nil {
+		hints = e.Def
+	}
+	changes := migrateReachable(in, d, hints)
+	if err := a.Store.Save(in, d); err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	a.Log("%s: %s", name, strings.Join(changes, "; "))
+	if err := a.writeConfig(in, d); err != nil {
+		return err
+	}
+	if err := t.Register(in, d, a.targetEnv()); err != nil {
+		return err
+	}
+	if t.Status(in).State == "running" {
+		a.Log("Restarting %s to apply the change", name)
+		if err := t.Stop(in); err != nil {
+			return err
+		}
+		return t.Start(in)
+	}
+	return nil
 }

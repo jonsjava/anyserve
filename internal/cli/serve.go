@@ -84,6 +84,11 @@ to run it yourself.`,
 			if err := startAgent(ctx, cmd, a, s); err != nil {
 				return err
 			}
+			// Apps installed before Anyserve opened them to the network get
+			// that once. In the background: it may restart some of them.
+			if ma, err := newApp(cmd); err == nil {
+				go ma.MigrateReachable()
+			}
 			err = <-errs
 			cancel()
 			return err
