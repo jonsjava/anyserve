@@ -156,6 +156,7 @@ Each service's quirks are noted in its definition and shown by `anyserve info`.
 | `https use/status/sync` | The HTTPS proxy for apps' domains: Caddy (default, run by Anyserve), your own nginx or Traefik, or none. See [HTTPS for apps](#https-for-apps) |
 | `remote enable/disable/status` | This host's built-in SSH server for remote users |
 | `remote add/list/remove` | Hosts you manage from this computer |
+| `reserve add/list/remove` | Keep ports free for things Anyserve doesn't run, e.g. another panel's stopped servers |
 | `fleet token/join/list/remove/leave` | Manage several machines from one. See [More machines](#more-machines) |
 | `upgrade [--check]` | Update Anyserve itself to the latest signed release |
 | `proxy [host]` | The web UI on your own 127.0.0.1, for this machine or a remote host |
@@ -279,6 +280,10 @@ sftp -P 7022 alice@box.example.com               # the files of alice's instance
   links can't lead out of it, and unpacking skips links and stops at 10 GiB.
 - **Installs pick free ports:** a default port that another instance or program already uses moves
   to the next free number, in the CLI and the web UI alike.
+- **Reserved ports** are skipped too. Reserve ports something else owns but isn't always listening
+  on, such as another panel's stopped servers: `anyserve reserve add 27015-27030 --note Pterodactyl`
+  (`--protocol tcp|udp`, default both), or the web UI's **Ports** page, per machine. Picking a
+  reserved port yourself still works, with a warning.
 - **The host's web CA only covers localhost addresses**, so trusting it in your browser can't
   vouch for any real website.
 - **On the host itself**, `anyserve proxy` (no host) opens the same UI with full access.

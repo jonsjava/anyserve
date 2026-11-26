@@ -14,6 +14,7 @@
     <button data-view="servers" aria-current="true">Servers</button>
     <button data-view="machines">Machines</button>
     <button data-view="users">Users</button>
+    <button data-view="ports">Ports</button>
     <button data-view="new" class="primary">New server</button>
   </nav>
   <div id="who" class="muted"></div>
@@ -122,6 +123,21 @@
     <p class="muted small">Run one command on the new machine (Linux or macOS, as the user that should run the servers). It installs Anyserve, joins this machine and starts on boot.</p>
     <div><button id="m-add" class="primary">Get the command</button></div>
     <div id="m-join" class="notice" hidden></div>
+  </section>
+</main>
+
+<main class="page" id="view-ports" hidden>
+  <section class="detail">
+    <h2>Reserved ports <span id="p-where" class="muted small"></span></h2>
+    <p class="muted small">New servers never get these ports. Reserve ports that something else owns but isn't always listening on, such as another panel's stopped servers. Ports your servers use and ports in use right now are avoided anyway.</p>
+    <table class="grid"><thead><tr><th>Ports</th><th>Protocol</th><th>Note</th><th></th></tr></thead><tbody id="p-list"></tbody></table>
+    <h3>Reserve ports</h3>
+    <form id="p-form" class="row wrap">
+      <input id="p-range" required placeholder="27015-27030" aria-label="Port or range" autocomplete="off" style="max-width:160px">
+      <select id="p-proto" aria-label="Protocol"><option value="both">TCP and UDP</option><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+      <input id="p-note" placeholder="What it's for (optional)" aria-label="Note" autocomplete="off">
+      <button type="submit">Reserve</button>
+    </form>
   </section>
 </main>
 

@@ -75,7 +75,7 @@ Run anyserve with no arguments for a guided install.`,
 		startCmd(), stopCmd(), restartCmd(), logsCmd(), updateCmd(),
 		configCmd(), portsCmd(), consoleCmd(), rconCmd(), sayCmd(),
 		backupCmd(), backupsCmd(), restoreCmd(), removeCmd(), autoUpdateCmd(), serveCmd(),
-		usersCmd(), remoteCmd(), proxyCmd(), portForwardCmd(), httpsCmd(), dnsCmd(), routerCmd(), upgradeCmd(), fleetCmd(),
+		usersCmd(), remoteCmd(), proxyCmd(), portForwardCmd(), httpsCmd(), dnsCmd(), routerCmd(), upgradeCmd(), fleetCmd(), reserveCmd(),
 		refreshCmd(), registryCmd(),
 		steamCmd(), targetsCmd(), runCmd(), versionCmd(),
 	)

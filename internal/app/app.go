@@ -63,6 +63,8 @@ type Config struct {
 	Hosts []RemoteHost `json:"hosts,omitempty"`
 	// Fleet links this machine to others (`anyserve fleet`).
 	Fleet FleetConfig `json:"fleet,omitempty"`
+	// Reserved are port ranges installs leave alone (`anyserve reserve`).
+	Reserved []PortReservation `json:"reserved_ports,omitempty"`
 }
 
 func (a *App) configPath() string { return filepath.Join(a.Dirs.Config, "config.json") }

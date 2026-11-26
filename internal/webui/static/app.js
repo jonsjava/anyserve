@@ -19,7 +19,7 @@
   };
   let current = null, cwd = "", instances = [], logTimer = null, node = "";
   // Calls about servers go to the chosen machine; the manager forwards them.
-  const onNode = (path) => node && /^\/v1\/(instances|catalog|jobs)(\/|\?|$)/.test(path) ? "/v1/nodes/" + encodeURIComponent(node) + path : path;
+  const onNode = (path) => node && /^\/v1\/(instances|catalog|jobs|reservations)(\/|\?|$)/.test(path) ? "/v1/nodes/" + encodeURIComponent(node) + path : path;
 
   async function api(method, path, body, raw) {
     const opts = { method, headers: { "X-Anyserve-Token": token || "" } };
@@ -315,10 +315,11 @@
   // ---- Admin: views, users, new servers, removal ----
   let isAdmin = false, catalog = null, def = null, jobTimer = null;
   function showView(v) {
-    for (const n of ["servers", "users", "machines", "new"]) $("#view-" + n).hidden = n !== v;
+    for (const n of ["servers", "users", "machines", "ports", "new"]) $("#view-" + n).hidden = n !== v;
     document.querySelectorAll("#adminnav button").forEach((b) => b.setAttribute("aria-current", b.dataset.view === v ? "true" : "false"));
     if (v === "users") loadUsers();
     if (v === "machines") loadMachines();
+    if (v === "ports") loadReserved();
     if (v === "new") openNew();
   }
   document.querySelectorAll("#adminnav button").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
@@ -351,6 +352,7 @@
     $("#detail").hidden = true; $("#welcome").hidden = false;
     $("#instances").replaceChildren();
     if (!$("#view-new").hidden) openNew();
+    if (!$("#view-ports").hidden) loadReserved();
     loadList();
   }
   $("#node").onchange = (ev) => chooseNode(ev.target.value);
@@ -384,6 +386,35 @@
       box.replaceChildren("Run this on the new machine. It works once, until " + new Date(j.expires).toLocaleTimeString() + ":\n", code, "\n", copy);
     } catch (e) { box.className = "notice bad"; box.textContent = e.message; }
     box.hidden = false;
+  };
+
+  // ---- Reserved ports (per machine) ----
+  async function loadReserved() {
+    $("#p-where").textContent = node ? "on " + node : "on this machine";
+    const tb = $("#p-list");
+    let rs;
+    try { rs = await api("GET", "/v1/reservations"); } catch (e) { tb.replaceChildren(el("tr", {}, el("td", { colSpan: 4, className: "muted", textContent: e.message }))); return; }
+    if (!rs.length) { tb.replaceChildren(el("tr", {}, el("td", { colSpan: 4, className: "muted", textContent: "No ports are reserved." }))); return; }
+    tb.replaceChildren(...rs.map((r) => {
+      const range = r.from === r.to ? String(r.from) : r.from + "-" + r.to;
+      const rm = el("button", { className: "danger", textContent: "Remove" });
+      rm.onclick = async () => {
+        try { await api("DELETE", "/v1/reservations", { from: r.from, to: r.to }); toast("Removed " + range); loadReserved(); } catch (e) { toast(e.message, true); }
+      };
+      return el("tr", {}, el("td", { textContent: range }), el("td", { textContent: r.protocol }), el("td", { textContent: r.note || "" }), el("td", {}, rm));
+    }));
+  }
+  $("#p-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const m = $("#p-range").value.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+    if (!m) { toast("Give a port like 25565 or a range like 27015-27030", true); return; }
+    const body = { from: Number(m[1]), to: Number(m[2] || m[1]), protocol: $("#p-proto").value, note: $("#p-note").value.trim() };
+    try {
+      const r = await api("POST", "/v1/reservations", body);
+      toast("Reserved " + $("#p-range").value.trim() + (r.in_use && r.in_use.length ? "\nAlready used by your servers, which keep them: " + r.in_use.join(", ") : ""));
+      ev.target.reset();
+      loadReserved();
+    } catch (e) { toast(e.message, true); }
   };
 
   async function loadUsers() {
@@ -550,6 +581,9 @@
     return { service: def.ref, name: $("#n-name").value.trim(), settings, ports, domain: $("#n-domain").value.trim(), start: $("#n-start").checked, dry_run: dry };
   }
   $("#n-ports").oninput = (ev) => { if (ev.target.dataset.port) ev.target.dataset.touched = "1"; };
+  // Re-check a port as soon as it's changed, so warnings (in use, reserved)
+  // show before Install.
+  $("#n-ports").onchange = () => plan(true);
 
   // plan asks the host for the ports it would use: taken defaults are
   // moved to free ones before the user sees them.

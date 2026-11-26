@@ -38,6 +38,10 @@ func (a *App) pickFreePorts(name string, d *spec.Definition, given, ports map[st
 			}
 		}
 	}
+	var reserved []PortReservation
+	if cfg, err := a.LoadConfig(); err == nil {
+		reserved = cfg.Reserved
+	}
 	// The user's own choices are fixed; claim them first.
 	for _, p := range d.Ports {
 		if _, ok := given[p.Name]; ok {
@@ -66,6 +70,9 @@ func (a *App) pickFreePorts(name string, d *spec.Definition, given, ports map[st
 					return false
 				}
 			}
+			if _, ok := reservedFor(reserved, n, norm(p.Protocol)); ok {
+				return false
+			}
 			if busy(n, norm(p.Protocol)) {
 				return false
 			}
@@ -86,7 +93,11 @@ func (a *App) pickFreePorts(name string, d *spec.Definition, given, ports map[st
 			ports[p.Name] = to
 			taken[to] = append(taken[to], p.Protocol)
 			if to != n {
-				moved = append(moved, fmt.Sprintf("port %s: %d is taken, using %d", p.Name, n, to))
+				why := "is taken"
+				if r, ok := reservedFor(reserved, n, norm(p.Protocol)); ok {
+					why = "is " + describe(r)
+				}
+				moved = append(moved, fmt.Sprintf("port %s: %d %s, using %d", p.Name, n, why, to))
 			}
 		}
 	}

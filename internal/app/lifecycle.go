@@ -158,6 +158,13 @@ func (a *App) checkPorts(self string, d *spec.Definition, ports map[string]int) 
 			}
 		}
 	}
+	if cfg, err := a.LoadConfig(); err == nil {
+		for _, p := range d.Ports {
+			if r, ok := reservedFor(cfg.Reserved, ports[p.Name], p.Protocol); ok {
+				warnings = append(warnings, fmt.Sprintf("port %d (%s) is %s; it's yours to use, but check nothing else needs it", ports[p.Name], p.Name, describe(r)))
+			}
+		}
+	}
 	for _, p := range d.Ports {
 		if busy(ports[p.Name], p.Protocol) {
 			warnings = append(warnings, fmt.Sprintf("port %d (%s) is in use by something else on this machine right now", ports[p.Name], p.Name))
