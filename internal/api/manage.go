@@ -33,8 +33,10 @@ type InstallBody struct {
 	Name     string            `json:"name"`
 	Settings map[string]string `json:"settings,omitempty"`
 	Ports    map[string]int    `json:"ports,omitempty"`
-	Domain   string            `json:"domain,omitempty"`
-	Start    bool              `json:"start,omitempty"`
+	// Expose opens these private ports to the network (stacks only).
+	Expose []string `json:"expose,omitempty"`
+	Domain string   `json:"domain,omitempty"`
+	Start  bool     `json:"start,omitempty"`
 	// DryRun checks the request and returns the plan, installing nothing.
 	DryRun bool `json:"dry_run,omitempty"`
 }
@@ -118,7 +120,7 @@ func (s *Server) install(q *request) {
 		fail(q.w, http.StatusBadRequest, err, "")
 		return
 	}
-	req := app.InstallRequest{Service: b.Service, Name: b.Name, Settings: b.Settings, Ports: b.Ports, Domain: b.Domain, Start: b.Start}
+	req := app.InstallRequest{Service: b.Service, Name: b.Name, Settings: b.Settings, Ports: b.Ports, Expose: b.Expose, Domain: b.Domain, Start: b.Start}
 	plan, err := q.app.PlanInstall(req)
 	if err != nil {
 		fail(q.w, http.StatusBadRequest, err, q.out.String())

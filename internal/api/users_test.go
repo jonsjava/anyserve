@@ -99,4 +99,12 @@ func TestUserAdmin(t *testing.T) {
 	if a.Store.Exists("push") {
 		t.Error("a dry run installed something")
 	}
+	// The install form can open a private port; a wrong name is caught
+	// while planning.
+	if code, body := call(t, s, &sam, "POST", "/v1/instances", strings.NewReader(`{"service":"gotify","name":"push","expose":["http"],"dry_run":true}`)); code != http.StatusOK {
+		t.Errorf("dry run with expose: %d %s", code, body)
+	}
+	if code, body := call(t, s, &sam, "POST", "/v1/instances", strings.NewReader(`{"service":"gotify","name":"push","expose":["nope"],"dry_run":true}`)); code != http.StatusBadRequest || !strings.Contains(body, "no port") {
+		t.Errorf("expose of a missing port: %d %s", code, body)
+	}
 }

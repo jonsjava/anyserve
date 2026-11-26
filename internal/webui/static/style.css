@@ -54,7 +54,7 @@ select{background:var(--panel);color:var(--text);border:1px solid var(--line);bo
 .catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:10px;max-height:60vh;overflow:auto}
 .catalog .card{margin:0}.catalog .kind{font-size:11px;color:var(--muted)}
 .ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
-.ports label{font-size:12px}
+.ports label{font-size:12px}.ports .port{display:flex;flex-direction:column;gap:6px}
 .selbar{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:8px 0}
 .chk{width:28px}
 .editor{margin-top:12px}.editor textarea{min-height:50vh;margin-top:8px;white-space:pre;tab-size:4}
