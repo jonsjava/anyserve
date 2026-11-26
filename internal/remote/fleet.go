@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -124,7 +125,8 @@ func (s *Server) handleJoin(conn *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 // manager reaches its API. Workers can't open anything on the manager.
 func (s *Server) handleNode(conn *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request) {
 	name := conn.Permissions.Extensions["node"]
-	ver := strings.TrimPrefix(string(conn.ClientVersion()), "SSH-2.0-Anyserve_")
+	// clientVersion swapped the version's hyphens, which SSH forbids there.
+	ver := strings.ReplaceAll(strings.TrimPrefix(string(conn.ClientVersion()), "SSH-2.0-Anyserve_"), "_", "-")
 	nc := &nodeConn{conn: conn, since: time.Now().UTC(), version: ver, addr: conn.RemoteAddr().String()}
 	s.fleet.mu.Lock()
 	if s.fleet.nodes == nil {
@@ -136,6 +138,9 @@ func (s *Server) handleNode(conn *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 	s.fleet.nodes[name] = nc
 	s.fleet.mu.Unlock()
 	s.audit("%s fleet node %s connected (Anyserve %s)", conn.RemoteAddr(), name, ver)
+	done := make(chan struct{})
+	defer close(done)
+	go keepAlive(conn, done)
 	go func() {
 		for r := range reqs {
 			// Keepalives.
@@ -187,12 +192,85 @@ func (s *Server) DialNode(ctx context.Context, name string) (net.Conn, error) {
 	if nc == nil {
 		return nil, fmt.Errorf("node %s isn't connected", name)
 	}
-	ch, reqs, err := nc.conn.OpenChannel(nodeAPIChannel, nil)
-	if err != nil {
-		return nil, fmt.Errorf("node %s: %w", name, err)
+	type opened struct {
+		ch   ssh.Channel
+		reqs <-chan *ssh.Request
+		err  error
 	}
-	go ssh.DiscardRequests(reqs)
-	return &chanConn{Channel: ch, local: nc.conn.LocalAddr(), remote: nc.conn.RemoteAddr()}, nil
+	res := make(chan opened, 1)
+	go func() {
+		ch, reqs, err := nc.conn.OpenChannel(nodeAPIChannel, nil)
+		res <- opened{ch, reqs, err}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, keepaliveEvery.Get()+keepaliveWait.Get())
+	defer cancel()
+	select {
+	case o := <-res:
+		if o.err != nil {
+			return nil, fmt.Errorf("node %s: %w", name, o.err)
+		}
+		go ssh.DiscardRequests(o.reqs)
+		return &chanConn{Channel: o.ch, local: nc.conn.LocalAddr(), remote: nc.conn.RemoteAddr()}, nil
+	case <-ctx.Done():
+		// Close the channel if it opens after all.
+		go func() {
+			if o := <-res; o.err == nil {
+				o.ch.Close()
+			}
+		}()
+		return nil, fmt.Errorf("node %s isn't answering", name)
+	}
+}
+
+// Both ends of a node's connection ping each other, so a machine that
+// froze, lost power or fell off the network shows as offline within a
+// minute rather than hanging every request until TCP gives up.
+var keepaliveEvery, keepaliveWait = durationVar(15 * time.Second), durationVar(20 * time.Second)
+
+// atomicDuration lets tests shorten the keepalive times safely.
+type atomicDuration struct{ n atomic.Int64 }
+
+func durationVar(d time.Duration) *atomicDuration {
+	v := &atomicDuration{}
+	v.n.Store(int64(d))
+	return v
+}
+func (v *atomicDuration) Get() time.Duration  { return time.Duration(v.n.Load()) }
+func (v *atomicDuration) Set(d time.Duration) { v.n.Store(int64(d)) }
+
+// keepAlive closes conn when a keepalive goes unanswered, until done. It
+// reports whether it was the one that closed it.
+func keepAlive(conn ssh.Conn, done <-chan struct{}) bool {
+	t := time.NewTicker(keepaliveEvery.Get())
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return false
+		case <-t.C:
+		}
+		res := make(chan error, 1)
+		go func() {
+			// Any reply, even "unsupported", shows the other end is alive.
+			_, _, err := conn.SendRequest("keepalive@anyserve", true, nil)
+			res <- err
+		}()
+		timer := time.NewTimer(keepaliveWait.Get())
+		select {
+		case err := <-res:
+			timer.Stop()
+			if err != nil {
+				conn.Close() // already gone
+				return false
+			}
+		case <-timer.C:
+			conn.Close()
+			return true
+		case <-done:
+			timer.Stop()
+			return false
+		}
+	}
 }
 
 // DropNode disconnects a node, e.g. after it's removed.
@@ -349,21 +427,16 @@ func agentOnce(ctx context.Context, link app.ManagerLink, key ssh.Signer, pinned
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
-		t := time.NewTicker(30 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				conn.Close()
-				return
-			case <-done:
-				return
-			case <-t.C:
-				if _, _, err := conn.SendRequest("keepalive@anyserve", true, nil); err != nil {
-					conn.Close()
-					return
-				}
-			}
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-done:
+		}
+	}()
+	silent := make(chan struct{})
+	go func() {
+		if keepAlive(conn, done) {
+			close(silent)
 		}
 	}()
 	for c := range chans {
@@ -382,7 +455,13 @@ func agentOnce(ctx context.Context, link app.ManagerLink, key ssh.Signer, pinned
 			ch.Close()
 		}
 	}
-	return conn.Wait()
+	err = conn.Wait()
+	select {
+	case <-silent:
+		return errors.New("the manager stopped answering")
+	default:
+		return err
+	}
 }
 
 // JoinCommand makes a single-use join token and the one command a new
