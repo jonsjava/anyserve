@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -201,7 +202,7 @@ func (s *Server) DialNode(ctx context.Context, name string) (net.Conn, error) {
 		ch, reqs, err := nc.conn.OpenChannel(nodeAPIChannel, nil)
 		res <- opened{ch, reqs, err}
 	}()
-	ctx, cancel := context.WithTimeout(ctx, keepaliveEvery+keepaliveWait)
+	ctx, cancel := context.WithTimeout(ctx, keepaliveEvery.Get()+keepaliveWait.Get())
 	defer cancel()
 	select {
 	case o := <-res:
@@ -224,15 +225,23 @@ func (s *Server) DialNode(ctx context.Context, name string) (net.Conn, error) {
 // Both ends of a node's connection ping each other, so a machine that
 // froze, lost power or fell off the network shows as offline within a
 // minute rather than hanging every request until TCP gives up.
-var (
-	keepaliveEvery = 15 * time.Second
-	keepaliveWait  = 20 * time.Second
-)
+var keepaliveEvery, keepaliveWait = durationVar(15 * time.Second), durationVar(20 * time.Second)
+
+// atomicDuration lets tests shorten the keepalive times safely.
+type atomicDuration struct{ n atomic.Int64 }
+
+func durationVar(d time.Duration) *atomicDuration {
+	v := &atomicDuration{}
+	v.n.Store(int64(d))
+	return v
+}
+func (v *atomicDuration) Get() time.Duration  { return time.Duration(v.n.Load()) }
+func (v *atomicDuration) Set(d time.Duration) { v.n.Store(int64(d)) }
 
 // keepAlive closes conn when a keepalive goes unanswered, until done. It
 // reports whether it was the one that closed it.
 func keepAlive(conn ssh.Conn, done <-chan struct{}) bool {
-	t := time.NewTicker(keepaliveEvery)
+	t := time.NewTicker(keepaliveEvery.Get())
 	defer t.Stop()
 	for {
 		select {
@@ -246,7 +255,7 @@ func keepAlive(conn ssh.Conn, done <-chan struct{}) bool {
 			_, _, err := conn.SendRequest("keepalive@anyserve", true, nil)
 			res <- err
 		}()
-		timer := time.NewTimer(keepaliveWait)
+		timer := time.NewTimer(keepaliveWait.Get())
 		select {
 		case err := <-res:
 			timer.Stop()

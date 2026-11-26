@@ -128,9 +128,10 @@ func TestFleet(t *testing.T) {
 // A worker that stops answering (frozen, powered off, cut off) shows as
 // offline soon, and requests to it fail instead of hanging.
 func TestFleetFrozenNode(t *testing.T) {
-	every, wait := keepaliveEvery, keepaliveWait
-	keepaliveEvery, keepaliveWait = 100*time.Millisecond, 200*time.Millisecond
-	defer func() { keepaliveEvery, keepaliveWait = every, wait }()
+	every, wait := keepaliveEvery.Get(), keepaliveWait.Get()
+	keepaliveEvery.Set(100 * time.Millisecond)
+	keepaliveWait.Set(200 * time.Millisecond)
+	defer func() { keepaliveEvery.Set(every); keepaliveWait.Set(wait) }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
