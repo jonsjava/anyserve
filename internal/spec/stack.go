@@ -70,7 +70,20 @@ type ServicePort struct {
 	// Port names an entry in the definition's ports.
 	Port string `yaml:"port" json:"port"`
 	// Target is the port inside the container.
-	Target int `yaml:"target" json:"target"`
+	Target int `yaml:"target,omitempty" json:"target,omitempty"`
+	// SamePort uses the host port's number inside the container too,
+	// instead of Target, for servers that announce their own port to
+	// clients (WebRTC, for one) and so break when it's mapped to another
+	// number. Pass the number to the server with {{.Ports.<name>}}.
+	SamePort bool `yaml:"same_port,omitempty" json:"same_port,omitempty"`
+}
+
+// ContainerPort is the port inside the container for a host port.
+func (p ServicePort) ContainerPort(host int) int {
+	if p.SamePort {
+		return host
+	}
+	return p.Target
 }
 
 // HealthCheck runs a command inside the container. Exit status 0 means
@@ -163,8 +176,11 @@ func (d *Definition) validateStack(add func(string, ...any)) {
 				add("%s: port %q is published twice", pw, p.Port)
 			}
 			usedPorts[p.Port] = true
-			if p.Target < 1 || p.Target > 65535 {
-				add("%s: target must be 1-65535", pw)
+			switch {
+			case p.SamePort && p.Target != 0:
+				add("%s: give either target or same_port, not both", pw)
+			case !p.SamePort && (p.Target < 1 || p.Target > 65535):
+				add("%s: target must be 1-65535 (or set same_port)", pw)
 			}
 		}
 		for _, dep := range s.DependsOn {

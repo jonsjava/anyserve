@@ -236,3 +236,29 @@ func TestComposeHealthDisable(t *testing.T) {
 		t.Error("command with disable should be refused")
 	}
 }
+
+// same_port publishes a port on the same number inside the container,
+// following the host port when it's moved.
+func TestComposeSamePort(t *testing.T) {
+	d := stackDef()
+	d.Stack.Services[1].Ports[1] = spec.ServicePort{Port: "admin", SamePort: true}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	in := &instance.Instance{Name: "x", Dir: dir, ServerDir: dir, Ports: map[string]int{"admin": 9123}}
+	b, err := Compose(in, d, 1001, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := string(b); strings.Count(c, "target: 9123") != 2 || strings.Count(c, `published: "9123"`) != 2 {
+		t.Errorf("admin (tcp and udp) should be 9123 inside and out:\n%s", c)
+	}
+	for _, bad := range []spec.ServicePort{{Port: "admin", SamePort: true, Target: 90}, {Port: "admin"}} {
+		d := stackDef()
+		d.Stack.Services[1].Ports[1] = bad
+		if err := d.Validate(); err == nil {
+			t.Errorf("%+v was accepted", bad)
+		}
+	}
+}

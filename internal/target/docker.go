@@ -348,7 +348,7 @@ func Compose(in *instance.Instance, d *spec.Definition, uid, gid int) ([]byte, e
 				host = "127.0.0.1"
 			}
 			for _, proto := range protocols(def.Protocol) {
-				cs.Ports = append(cs.Ports, composePort{Target: p.Target, Published: strconv.Itoa(ctx.Ports[p.Port]), HostIP: host, Protocol: proto})
+				cs.Ports = append(cs.Ports, composePort{Target: p.ContainerPort(ctx.Ports[p.Port]), Published: strconv.Itoa(ctx.Ports[p.Port]), HostIP: host, Protocol: proto})
 			}
 		}
 		if len(s.DependsOn) > 0 {

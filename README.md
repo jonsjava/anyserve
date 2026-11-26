@@ -117,6 +117,7 @@ with `--expose http` at install or `anyserve config <name> --expose http` later.
 | Memos | Notes | 5230 |
 | Miniflux | Feed reader | 8085 |
 | Mumble | Voice chat server | 64738 |
+| n.eko | Shared Firefox in the browser, streamed over WebRTC | 8085, media 52000 |
 | n8n | Workflow automation | 5678 |
 | Navidrome | Music streaming (shares a folder you choose) | 4533 |
 | ntfy | Push notifications | 2586 |

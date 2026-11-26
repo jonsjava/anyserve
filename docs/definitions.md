@@ -458,7 +458,7 @@ backup:
 | `command` | Replaces the image's command. Templates allowed. |
 | `env` | Environment variables. Templates allowed. |
 | `volumes` | Mounts from the server folder (`path`), or a folder the user chose in a `folder` setting (`setting`). A path listed in `files` is mounted as a file; any other path is a folder, created before the stack starts. An optional folder setting left empty skips its mount. Backups only cover the server folder, not chosen folders. |
-| `ports` | Publishes a port from `ports` (by name) from the container's `target` port. Each port is published once. |
+| `ports` | Publishes a port from `ports` (by name) from the container's `target` port. Each port is published once. Use `same_port: true` instead of `target` when the server announces its own port to clients (WebRTC, for one): the container then listens on the same number as the host, which the server gets from `{{.Ports.<name>}}`. |
 | `depends_on` | Starts these services first, waiting until they're healthy if they have a health check. |
 | `health` | A command run inside the container; exit status 0 means healthy. `disable: true` instead turns off a check built into the image, for a container that doesn't do what that check expects. |
 | `shm_mb` | Shared memory size, which databases often need raised. |
