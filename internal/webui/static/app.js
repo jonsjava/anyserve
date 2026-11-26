@@ -108,6 +108,8 @@
     document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
     document.querySelectorAll(".panel").forEach((p) => (p.hidden = p.dataset.panel !== tab));
     clearInterval(logTimer); logTimer = null;
+    stopStats();
+    if (tab === "overview") startStats();
     if (tab === "logs") { loadLogs(); if ($("#logs-follow").checked) logTimer = setInterval(loadLogs, 3000); }
     if (tab === "files") loadFiles();
     if (tab === "backups") loadBackups();
@@ -128,6 +130,118 @@
       finally { document.querySelectorAll("[data-act]").forEach((x) => (x.disabled = false)); loadList(); }
     };
   });
+  // ---- Live stats (Overview): polled every 2 s while shown, like a panel's
+  // live graphs. The host reports running totals; rates come from the
+  // difference between two readings. Two minutes of history, kept here only.
+  const STATS_EVERY = 2000, STATS_KEEP = 60;
+  let statsTimer = null, statsKey = "", statsHist = [], statsPrev = null, statsHover = null;
+  function stopStats() { clearInterval(statsTimer); statsTimer = null; }
+  function startStats() {
+    const key = node + "/" + current;
+    if (key !== statsKey) { statsKey = key; statsHist = []; statsPrev = null; $("#stats").hidden = true; }
+    loadStats();
+    statsTimer = setInterval(() => { if (!document.hidden) loadStats(); }, STATS_EVERY);
+  }
+  const rate = (n) => size(Math.max(0, n)) + "/s";
+  function uptime(since) {
+    let s = Math.max(0, Math.floor((Date.now() - new Date(since)) / 1000));
+    const d = Math.floor(s / 86400); s %= 86400;
+    const h = Math.floor(s / 3600); s %= 3600;
+    const m = Math.floor(s / 60);
+    return d ? d + "d " + h + "h" : h ? h + "h " + m + "m" : m + "m " + (s % 60) + "s";
+  }
+  async function loadStats() {
+    const key = statsKey;
+    let st;
+    try { st = await api("GET", "/v1/instances/" + enc(current) + "/stats"); }
+    catch (e) { if (key === statsKey) { $("#stats").hidden = true; if (/doesn't report/.test(e.message)) stopStats(); } return; }
+    if (key !== statsKey) return;
+    const at = new Date(st.at).getTime();
+    let sample = { t: at, mem: st.memory, cpu: null, rx: null, tx: null };
+    if (statsPrev && st.running && statsPrev.running && at > statsPrev.at && st.cpu_ns >= statsPrev.cpu) {
+      const dt = (at - statsPrev.at) / 1000;
+      sample.cpu = (st.cpu_ns - statsPrev.cpu) / 1e9 / dt * 100;
+      if (st.net) { sample.rx = Math.max(0, (st.net_rx - statsPrev.rx) / dt); sample.tx = Math.max(0, (st.net_tx - statsPrev.tx) / dt); }
+    }
+    statsPrev = { at, running: st.running, cpu: st.cpu_ns, rx: st.net_rx, tx: st.net_tx };
+    if (!st.running) sample = { t: at, mem: 0, cpu: 0, rx: st.net ? 0 : null, tx: st.net ? 0 : null };
+    statsHist.push(sample);
+    if (statsHist.length > STATS_KEEP) statsHist.shift();
+    renderStats(st);
+  }
+  function renderStats(st) {
+    const box = $("#stats"), last = statsHist[statsHist.length - 1] || {};
+    const tile = (k, v, sub, chart) => el("div", { className: "tile" }, el("div", { className: "k", textContent: k }), el("div", { className: "v", textContent: v }), sub, chart || "");
+    const subEl = (text) => el("div", { className: "sub", textContent: text });
+    const tiles = [];
+    tiles.push(tile("Uptime", st.running && st.started ? uptime(st.started) : st.running ? "Running" : "Stopped",
+      subEl(st.running && st.started ? "since " + new Date(st.started).toLocaleString() : st.running ? "" : "not running")));
+    const cpuSub = subEl("of " + st.cores + " cores (100% is one core)");
+    tiles.push(tile("CPU", last.cpu == null ? (st.running ? "…" : "0%") : last.cpu.toFixed(1) + "%", cpuSub,
+      spark([{ key: "cpu", color: "var(--s1)", name: "CPU" }], cpuSub, (v) => v.toFixed(1) + "%", 100)));
+    const memSub = subEl("of " + size(st.memory_max) + (st.processes ? " · " + st.processes + " process" + (st.processes === 1 ? "" : "es") : ""));
+    tiles.push(tile("Memory", size(st.memory), memSub, spark([{ key: "mem", color: "var(--s1)", name: "Memory" }], memSub, size, 64 * 1048576)));
+    tiles.push(tile("Disk", size(st.disk), subEl("the server's folder")));
+    if (st.net) {
+      const legend = () => [el("span", { className: "sw", style: "background:var(--s1)" }), "In " + size(st.net_rx), el("span", { className: "sw", style: "background:var(--s2)" }), "Out " + size(st.net_tx)];
+      const netSub = el("div", { className: "sub" }, ...legend());
+      netSub.reset = () => netSub.replaceChildren(...legend());
+      tiles.push(tile("Network", last.rx == null ? (st.running ? "…" : "idle") : "↓ " + rate(last.rx) + "  ↑ " + rate(last.tx), netSub,
+        spark([{ key: "rx", color: "var(--s1)", name: "In" }, { key: "tx", color: "var(--s2)", name: "Out" }], netSub, rate, 1024)));
+    } else {
+      tiles.push(tile("Network", "Not shown", subEl("Native servers share the machine's network. Isolate this one (anyserve config " + current + " --isolate) to see its traffic.")));
+    }
+    box.replaceChildren(...tiles);
+    box.hidden = false;
+  }
+  // spark draws a small line chart of the history for one or two series,
+  // with a crosshair readout on hover. floor keeps an idle line low
+  // instead of filling the chart.
+  function spark(series, sub, fmt, floor) {
+    const W = 120, H = 40, n = STATS_KEEP;
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "spark"); svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    let max = floor;
+    for (const p of statsHist) for (const s of series) if (p[s.key] != null) max = Math.max(max, p[s.key]);
+    const x = (i) => W - (statsHist.length - 1 - i) * (W / (n - 1));
+    const y = (v) => H - 1 - (v / max) * (H - 4);
+    const base = document.createElementNS(ns, "line");
+    base.setAttribute("class", "grid"); base.setAttribute("x1", 0); base.setAttribute("x2", W); base.setAttribute("y1", H - 0.5); base.setAttribute("y2", H - 0.5);
+    base.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.append(base);
+    for (const s of series) {
+      const pts = statsHist.map((p, i) => p[s.key] == null ? null : x(i).toFixed(2) + "," + y(p[s.key]).toFixed(2)).filter(Boolean);
+      if (pts.length < 2) continue;
+      const pl = document.createElementNS(ns, "polyline");
+      pl.setAttribute("points", pts.join(" ")); pl.setAttribute("stroke", s.color); pl.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.append(pl);
+    }
+    const label = series.map((s) => s.name).join(" and ") + " over the last two minutes";
+    svg.setAttribute("aria-label", label);
+    const cross = document.createElementNS(ns, "line");
+    cross.setAttribute("class", "cross"); cross.setAttribute("y1", 0); cross.setAttribute("y2", H); cross.setAttribute("vector-effect", "non-scaling-stroke"); cross.style.display = "none";
+    svg.append(cross);
+    const original = sub.reset || ((t) => () => (sub.textContent = t))(sub.textContent);
+    svg.onmousemove = (ev) => {
+      if (!statsHist.length) return;
+      const r = svg.getBoundingClientRect();
+      const fx = (ev.clientX - r.left) / r.width * W;
+      let i = Math.round(statsHist.length - 1 - (W - fx) / (W / (n - 1)));
+      i = Math.max(0, Math.min(statsHist.length - 1, i));
+      const p = statsHist[i];
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.style.display = "";
+      const vals = series.map((s) => (series.length > 1 ? s.name + " " : "") + (p[s.key] == null ? "–" : fmt(p[s.key])));
+      sub.textContent = new Date(p.t).toLocaleTimeString() + " · " + vals.join(" · ");
+      statsHover = { label, clientX: ev.clientX };
+    };
+    svg.onmouseleave = () => { cross.style.display = "none"; original(); statsHover = null; };
+    // Keep the readout where the pointer is when the chart is redrawn.
+    if (statsHover && statsHover.label === label) requestAnimationFrame(() => svg.isConnected && svg.onmousemove(statsHover));
+    return svg;
+  }
+
   function showLog(text) { const d = $("#d-log"); d.textContent = text || ""; d.hidden = !text; }
 
   async function loadLogs() {
@@ -348,7 +462,7 @@
   }
   function chooseNode(n) {
     node = n; current = null; catalog = null; instances = [];
-    clearInterval(logTimer);
+    clearInterval(logTimer); stopStats();
     $("#detail").hidden = true; $("#welcome").hidden = false;
     $("#instances").replaceChildren();
     if (!$("#view-new").hidden) openNew();

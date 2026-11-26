@@ -141,7 +141,7 @@ Each service's quirks are noted in its definition and shown by `anyserve info`.
 | `info <service>` | Show a service's settings, ports, console and notes |
 | `install <service>` | Install a new instance (`--name`, `--set key=value`, `--port name=N`, `--expose port`, `--target`, `--dir`, `--start`) |
 | `list` | List instances and their state |
-| `status <name>` | Details for one instance |
+| `status <name>` | Details for one instance, with uptime, CPU, memory, disk and network while it runs |
 | `start` / `stop` / `restart <name>` | Control an instance. `restart --warn 5m` warns players first |
 | `logs <name>` | Server output (`-f` to follow, `-n` lines) |
 | `update <name>` | Re-download the server and apply the newest definition, restarting if it was running (`--warn 10m`) |
@@ -275,6 +275,9 @@ sftp -P 7022 alice@box.example.com               # the files of alice's instance
   which is checked on the host. Without it they're ordinary users. With it, the web UI also
   manages users (add, make admin, give servers, add keys, issue certificates, remove) and
   servers (install from the catalog, with free ports filled in, and remove).
+- **Live stats** on each server's Overview: uptime, CPU (100% is one core), memory, disk and
+  network, with two-minute graphs, like a game panel's. Native servers share the machine's network,
+  so their traffic shows only once they're isolated (`--isolate`).
 - **The file manager** edits text files in the browser and uploads, downloads, renames, deletes,
   archives (.zip or .tar.gz) and unpacks archives. Everything stays inside the instance's folder:
   links can't lead out of it, and unpacking skips links and stops at 10 GiB.
